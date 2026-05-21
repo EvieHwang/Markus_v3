@@ -1,6 +1,6 @@
-# [Project Name]
+# Markus_v3
 
-[One-line description of what this app is. Replace when this template is copied.]
+Simple Markdown app for iOS
 
 ## Repo map
 - `declaration.md` — what this project is and why it exists
@@ -29,76 +29,22 @@ Development runs in Claude Code cloud sandboxes attached to this GitHub repo.
 - Development branch pattern: `claude/<short-task-name>-<suffix>`. Open a PR to `main` when work is complete. Always assign the PR to the repo owner. 
 
 ## Run, test, deps
-Pick the block that matches your project's stack. Uncomment it and delete the others. The header on each block describes when to use it.
 
-<!--
-### Python service (a backend program or MCP server, typically deployed to Eviebot)
-- Install: `python3.11 -m venv .venv && .venv/bin/pip install -e .`
-  Creates an isolated Python environment in `.venv/` (a hidden folder) and installs this project into it. The `-e` flag means "editable" — code changes take effect without reinstalling.
-- Run locally: `.venv/bin/<script-name>` where `<script-name>` is defined in `pyproject.toml` under `[project.scripts]`.
-- Tests: `.venv/bin/pytest` — pytest is the standard Python testing framework.
-- Package manager / lockfile: `pyproject.toml` describes dependencies. To add one, edit `pyproject.toml` and re-run the install command.
--->
-
-<!--
-### Web frontend (React + Vite + Tailwind + shadcn/ui — the constitution's default frontend stack)
-- Install: `pnpm install`
-  pnpm is a JavaScript package manager (an alternative to npm). Installs everything listed in `package.json`.
-- Run locally: `pnpm dev` — starts the Vite dev server. Open http://localhost:5173 in a browser.
-- Tests: `pnpm test` — runs Vitest (the test runner that pairs with Vite).
-- Package manager / lockfile: `pnpm` with `pnpm-lock.yaml`. To add a dependency: `pnpm add <package-name>`.
--->
-
-<!--
-### Next.js web app (React with built-in routing and server-side rendering)
-- Install: `pnpm install`
-- Run locally: `pnpm dev` — opens http://localhost:3000.
-- Tests: `pnpm test`
-- Package manager / lockfile: `pnpm` with `pnpm-lock.yaml`. To add a dependency: `pnpm add <package-name>`.
--->
-
-<!--
-### iOS or macOS app (Xcode + Swift)
-- Install: open `<ProjectName>.xcodeproj` in Xcode. Swift Package Manager (SwiftPM) resolves dependencies automatically on open. No separate install command.
+### iOS app (Xcode + Swift)
+- Install: open `Markus_v3.xcodeproj` (or `.xcworkspace`) in Xcode. Swift Package Manager (SwiftPM) resolves dependencies automatically on open. No separate install command.
 - Run locally: in Xcode, press Run (⌘R) to launch in the chosen simulator or device.
 - Tests: in Xcode, press Test (⌘U). Or from the command line:
-  `xcodebuild test -scheme <SchemeName> -destination 'platform=iOS Simulator,name=iPhone 15'`
+  `xcodebuild test -scheme Markus_v3 -destination 'platform=iOS Simulator,name=iPhone 15'`
 - Package manager / lockfile: Swift Package Manager (`Package.resolved` — committed automatically by Xcode).
--->
 
 
 ## Deployment target
-Pick one. Uncomment the matching block and delete the others.
 
-<!--
-### Eviebot (headless always-on Mac mini)
-- Service path: `/Users/eviebot/services/<repo-name>/` (must exist before first deploy)
-- Venv: `.venv/` inside the service path
-- Process management: `launchd`; plists live in `deploy/`
-- First load is manual on Eviebot (the runner's non-Aqua session can't bootstrap):
-  `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<plist>`
-- Subsequent deploys: `launchctl kickstart -k gui/$(id -u)/<label>`
-- Deploy via GitHub Actions on push to `main`, on the Eviebot self-hosted runner.
-  Workflow: rsync → create venv → pip install → write `.env` from secrets → kickstart → **post-deploy health check**.
-- A deploy is "successful" only if the post-deploy health check against the live service passes — a zero exit from `launchctl kickstart` confirms the kick was sent, not that the service is reachable. The workflow must curl a health endpoint (or equivalent) and fail the job if it doesn't return 2xx within a bounded retry window.
-- Before choosing a launchctl label: `launchctl list | grep eviebot` to avoid collisions.
--->
-
-<!--
-### AWS (public-facing)
-- Account: `070840362692` (user: `eve-hwang`)
-- Region: `us-east-1` (confirm per project)
-- Credentials: named profiles only; never hardcode keys
-- Deploy via GitHub Actions on push to `main`
-- A deploy is "successful" only if a post-deploy health check against the live service passes — CloudFormation/ECS/Lambda success codes confirm provisioning, not reachability. The workflow must hit a health endpoint (ALB target check, function invocation, etc.) and fail the job if it doesn't return healthy within a bounded retry window.
--->
-
-<!--
-### Apple platform (iOS / macOS via the Xcode Claude extension)
+### Apple platform (iOS via Xcode → App Store / TestFlight)
 - Specs live in this repo; build runs in Xcode locally
 - No CI deploy path; release is a manual Xcode build and submission
+- Signing: managed via Xcode (automatic signing with the Apple Developer team, or manual provisioning profiles as configured in the project)
 - "Deploy success" for an Apple build means the archive builds, signs, and uploads cleanly. There is no live-service health check; treat App Store / TestFlight acceptance as the equivalent gate.
--->
 
 ## Secrets
 - Canonical source: **GitHub Actions Secrets at the Eve-Hwang org level.**
