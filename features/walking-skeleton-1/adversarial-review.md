@@ -17,7 +17,7 @@ The fix is still implementable, but via a different mechanism: subscribe to `UID
 Concrete failure mode if not clarified: the build agent writes the design literally, can't get a `UIDocument`, can't subscribe, save failures stay silent — the original F-003 returns.
 
 **Recommended action:** `t3-architecture` — clarify the subscription mechanism: either spell out "subscribe with `object: nil` (acceptable because the app is single-document-at-a-time)" OR redesign to use `NSFilePresenter` conformance on `MarkdownDocument` (which exposes some, but not all, of the save-error surface).
-**Status:** open (with follow-on note)
+**Status:** addressed (design.md component #11 — explicitly specifies global `object: nil` subscription with safety justification for single-document-at-a-time app; build-agent note added about possible iOS 26 userInfo-based source lookup)
 
 ### F-007 — LOW — Coverage (follow-on)
 **Lens:** Coverage
@@ -30,7 +30,7 @@ Concrete failure mode if not clarified: the build agent writes the design litera
 If concern #1 is fixed, concern #2 is just an implementation discovery — the design's component #12 can be retained for safety, or dropped if the system path is verified to handle it.
 
 **Recommended action:** `t3-architecture` — clarify the subscription mechanism (same as F-003); optionally note that `DocumentLoadingView` is a safety net in case `DocumentGroup`'s system-provided download indicator is insufficient.
-**Status:** open (with follow-on note)
+**Status:** addressed (design.md component #11 mechanism shared with F-003; component #12 now explicitly documented as a safety net with build-agent verification instruction)
 
 ### F-008 — LOW — Standards compliance (new)
 **Lens:** Standards compliance (WCAG / Apple HIG accessibility)
@@ -39,7 +39,7 @@ If concern #1 is fixed, concern #2 is just an implementation discovery — the d
 This intersects with the AC-A11Y additions already absorbed into the feature: those two adds established that minimum accessibility surface lives here, not Roadmap #7. The toast is one of those surfaces.
 **Located:** design.md component #8 (`ToastModifier`); requirements.md AC-RECOVER-2.
 **Recommended action:** `t3-architecture` — pair the visual toast with `UIAccessibility.post(notification: .announcement, argument: "Copied")` so VoiceOver speaks the confirmation. Add an AC-A11Y-3 in requirements (small enough that `t3-requirements` may want to absorb it too).
-**Status:** addressed (requirements side) by requirements.md AC-A11Y-3; architecture side (the `UIAccessibility.post` call itself) still open and will be picked up by `/t3-architecture`
+**Status:** addressed (requirements.md AC-A11Y-3 + design.md component #8 Copy action — `UIAccessibility.post` fires before the toast; toast text is `.accessibilityHidden(true)` to avoid double-announce)
 
 ## Resolved findings
 
@@ -62,13 +62,15 @@ Original: Privacy Manifest required-reason API categories not enumerated. Fix: d
 
 ## Severity summary
 
-After re-attack:
+After re-attack + 3rd-pass requirements/architecture:
 
 - HIGH: 0 — DAG generation not blocked.
-- MEDIUM: 1 — **F-003 still open** (mechanism clarification needed).
-- LOW: 2 — F-007 (same mechanism issue + likely redundant), F-008 (new — VoiceOver announce on Copy).
+- MEDIUM: 0 — F-003 now addressed.
+- LOW: 0 — F-007, F-008 both addressed.
 
-Resolved: 5 findings (F-001, F-002, F-004, F-005, F-006).
+All 8 findings are addressed and await final verification on the next `/t3-adversarial` re-run.
+
+Resolved as of prior pass: 5 findings (F-001, F-002, F-004, F-005, F-006). The next adversarial pass will re-attack F-003, F-007, F-008 fixes and promote to `resolved` if they hold.
 
 ## Re-run guard
 
