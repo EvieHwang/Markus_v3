@@ -73,12 +73,16 @@ The document view is a single SwiftUI `View` that flips between two child views 
 - Implementation uses a `Task` with `try await Task.sleep` + `Task.checkCancellation`, on the main actor.
 
 ### 8. Error surface — `DocumentError.swift` + `ActiveAlert.swift` + `ToastModifier.swift`
-*Addresses adversarial F-002 (via AC-RECOVER-1/2 design).*
+*Addresses adversarial F-002 (via AC-RECOVER-1/2 design) and F-008 (via VoiceOver announcement wiring).*
 
 - `enum DocumentError: Error { case invalidEncoding, saveFailed(underlying: Error), fileMissing, iCloudDownloadFailed }`.
 - `enum ActiveAlert: Identifiable { case saveFailed(DocumentError), invalidEncoding, iCloudDownloadFailed }` — drives a single SwiftUI `.alert(item:)` modifier on `DocumentView`.
-- **Save-failed alert** (AC-RECOVER-1): two buttons — `"Copy contents to clipboard"` (writes `document.text` to `UIPasteboard.general.string`, then sets `toast = "Copied"`) and `"Dismiss"`. Body text names the failure ("Couldn't save. Your edits are still in memory and can be copied.").
-- **Toast** (AC-RECOVER-2): `ToastModifier` shows a transient bottom-aligned `Text` for 2 s after a copy. Implemented as a SwiftUI `View` modifier with a `@State` timer; no new dependency.
+- **Save-failed alert** (AC-RECOVER-1): two buttons — `"Copy contents to clipboard"` and `"Dismiss"`. Body text names the failure ("Couldn't save. Your edits are still in memory and can be copied.").
+- **Copy action implementation** (AC-RECOVER-1, AC-RECOVER-2, AC-A11Y-3 — *addresses adversarial F-008*): the Copy button's action closure does three things, in order, on `@MainActor`:
+  1. `UIPasteboard.general.string = document.text` (write clipboard).
+  2. `UIAccessibility.post(notification: .announcement, argument: NSLocalizedString("Copied", comment: "VoiceOver announcement after Copy contents to clipboard"))` (audible confirmation for VoiceOver users — fires regardless of toast visibility, satisfying AC-A11Y-3's independence requirement).
+  3. Trigger `toast = "Copied"` on the host `DocumentView` (visual confirmation).
+- **Toast** (AC-RECOVER-2): `ToastModifier` shows a transient bottom-aligned `Text` for 2 s after `toast` is set. Implemented as a SwiftUI `ViewModifier` with a `@State` `Task` that clears `toast` after `Task.sleep(for: .seconds(2))`. The toast text uses `.accessibilityHidden(true)` because VoiceOver users get the announcement instead, and double-announcing is more annoying than helpful.
 - `invalidEncoding` (EC-4): the document fails to open and the user is bounced back to the browser with an alert; no Copy action (there's no in-memory text to copy).
 - `iCloudDownloadFailed` (EC-13 failure path): user-visible alert; user dismisses back to browser.
 - `fileMissing`: surfaced as a `saveFailed(.fileMissing)` for the skeleton — the recovery alert with Copy still applies. Full deletion banner is Roadmap #3.
@@ -101,21 +105,23 @@ The document view is a single SwiftUI `View` that flips between two child views 
 - If the build agent finds during implementation that any of the above APIs are NOT actually called by `UIDocument`/`DocumentGroup` on iOS 26 (because Apple reorganized the internals), drop the unused entry — over-declaring is acceptable but wasteful; under-declaring is a submission reject.
 
 ### 11. Save status observer — `SaveStatusObserver.swift`
-*Addresses adversarial F-003.*
+*Addresses adversarial F-003 (with follow-on mechanism clarification).*
 
-- `@Observable final class SaveStatusObserver`.
-- On `init(document: UIDocument)`, subscribes to `UIDocument.stateChangedNotification` (Swift 6 / iOS 26 name; previously `UIDocumentStateChangedNotification`) filtered to the host document.
-- Exposes `@Published var lastSaveError: DocumentError?` — set whenever `document.documentState.contains(.savingError)` becomes true. `DocumentView` observes this and triggers the save-failed alert (component #8, AC-RECOVER-1).
-- Also exposes `@Published var isDownloadingFromiCloud: Bool` derived from `document.documentState.contains(.editingDisabled)` AND a non-`.normal` state — used by component #12 to show the iCloud loading view (EC-13 — partially *addresses adversarial F-007*).
-- On deinit, unsubscribes from the notification.
-- All state mutations are on `@MainActor`.
+- `@Observable @MainActor final class SaveStatusObserver`.
+- **Subscription mechanism (clarified per F-003 follow-on).** SwiftUI's `DocumentGroup` does not expose the underlying `UIDocument` instance to user code. The observer therefore subscribes to `UIDocument.stateChangedNotification` with `object: nil` (global). This is safe in Markus because the app is single-document-at-a-time per the project declaration — at most one `UIDocument` is in `.normal`/`.savingError`/`.editingDisabled` state at any moment, so any state-change notification can be treated as relevant. A future feature that ever opens multiple documents simultaneously would need to revisit this (likely by adding a `notification.object as? UIDocument` identity check; flagged as a Roadmap-3-or-later concern, not skeleton).
+- `init()` (no arguments — there's no `UIDocument` to pass in) registers the observer; `deinit` removes it.
+- Exposes `@Published var lastSaveError: DocumentError?` — set when the most recent state-change notification's source document is in `.savingError`. `DocumentView` observes this and triggers the save-failed alert (component #8, AC-RECOVER-1).
+- Exposes `@Published var isDownloadingFromiCloud: Bool` — set when a notification's source document is in `.editingDisabled` AND not in `.normal`. `DocumentView` uses this to show `DocumentLoadingView` (component #12) when needed.
+- The notification handler runs on the main thread (`UIDocument` posts on its own queue, but the handler uses `Task { @MainActor in … }` to hop) so all `@Published` mutations stay on `@MainActor` per Swift 6 strict concurrency.
+- **Build-agent note:** if iOS 26's `UIDocument.stateChangedNotification` userInfo provides the source document directly (rather than via `notification.object`), use that path — the API may have moved in modern releases.
 
 ### 12. Document loading view — `DocumentLoadingView.swift`
 *Addresses adversarial F-007 (architecture side) and requirements EC-13.*
 
 - Tiny SwiftUI view: a centered `ProgressView` with the label "Downloading…".
 - `DocumentView` renders this in place of `RenderedView`/`RawEditorView` whenever `saveStatusObserver.isDownloadingFromiCloud == true`.
-- On `SaveStatusObserver`'s state transitioning to a download failure (`document.documentState.contains(.savingError)` while still `.editingDisabled`), `DocumentView` sets `activeAlert = .iCloudDownloadFailed` and dismisses back to the document browser on alert dismissal.
+- **Possible redundancy note (per F-007 follow-on).** SwiftUI's `DocumentGroup` may itself show a system download indicator before handing the document to `MarkdownDocument.init(configuration:)`, in which case `isDownloadingFromiCloud` will never observe `.editingDisabled` from inside the document view and `DocumentLoadingView` will never render. This is acceptable — the component is harmless if unused, and serves as a safety net if the system indicator is missing/insufficient on iOS 26. The build agent should verify behavior on a real device with a not-yet-downloaded iCloud file before declaring the work complete; if `DocumentLoadingView` is verified unreachable, it may be deleted, but leaving it in is also fine.
+- On a download failure (`SaveStatusObserver` reports `.savingError` while still `.editingDisabled`), `DocumentView` sets `activeAlert = .iCloudDownloadFailed` and dismisses back to the document browser on alert dismissal.
 
 ## Project layout
 
@@ -191,19 +197,17 @@ Each seam has an obvious extension point for the next Roadmap feature:
 
 ## Changes from the prior pass
 
-Second-pass design — incorporates the requirements 2nd pass and addresses the four architecture-routed adversarial findings.
+Third-pass design — addresses the three remaining adversarial findings from the re-attack pass.
 
-- **Component #2 (MarkdownDocument)** — added `initialByteSize` to support EC-2's 500 KB threshold.
-- **Component #4 (DocumentView)** — initial mode is computed from `initialByteSize` (EC-2); observes `SaveStatusObserver` for save failures; renders `DocumentLoadingView` when iCloud download is pending.
-- **Component #8 (Error surface)** — added `ActiveAlert` enum and `ToastModifier`; save-failed alert offers "Copy contents to clipboard" + "Dismiss" with a confirmation toast (AC-RECOVER-1, AC-RECOVER-2).
-- **Component #10 (Privacy Manifest)** — required-reason API categories enumerated explicitly (F-006).
-- **Component #11 (SaveStatusObserver, new)** — subscribes to `UIDocument.stateChangedNotification`, exposes `lastSaveError` and `isDownloadingFromiCloud` (F-003 + F-007 architecture side).
-- **Component #12 (DocumentLoadingView, new)** — centered progress view for iCloud download (EC-13, F-007).
-- **Dependencies** — MarkdownUI pinned to `.upToNextMinor(from: "2.4.0")` (F-005).
+- **Component #8 (Error surface)** — Copy action now explicitly calls `UIAccessibility.post(notification: .announcement)` before triggering the visual toast; toast text is `.accessibilityHidden` to avoid double-announce (addresses F-008 architecture side, satisfies AC-A11Y-3).
+- **Component #11 (SaveStatusObserver)** — subscription mechanism clarified: global `UIDocument.stateChangedNotification` (object: nil) instead of per-document, because SwiftUI's `DocumentGroup` doesn't expose `UIDocument` to user code. Safe in Markus because the app is single-document-at-a-time (addresses F-003 follow-on).
+- **Component #12 (DocumentLoadingView)** — added explicit note that `DocumentGroup` may handle iCloud download natively and this component may be unreachable; safety-net behavior documented (addresses F-007 follow-on).
+
+**Second-pass changes (retained):** `MarkdownDocument.initialByteSize`, mode initialization from byte size, Privacy Manifest enumeration, MarkdownUI pin tightening.
 
 ## Requirements implications
 
-Three pre-existing clarifications from the first pass remain (AC-3.3 / AC-3.4 / AC-4.4 — see prior commits for context). No new clarifications from this pass.
+Three pre-existing clarifications from the first pass remain (AC-3.3 / AC-3.4 / AC-4.4). No new clarifications from this pass.
 
 The 500 KB threshold for EC-2 is a design constant declared in `DocumentView`. If tuning is desired later (e.g., 250 KB or 1 MB based on real-world testing), it's a one-line change with no cascading impact on requirements.
 
