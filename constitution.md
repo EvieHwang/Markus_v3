@@ -44,8 +44,9 @@ a decision, not made silently.
 [Add app-specific gates below as they are established.]
 
 ## Testing
-Framework: [populated by t2-verify on first use]
-Run: `[command — populated by t2-verify on first use]`
+Framework: **Swift Testing** for unit tests (`@Test`, `#expect`, `#require`) + **XCUITest** for end-to-end UI tests (Swift Testing has no UI-test equivalent yet on iOS 26 / Xcode 26).
+Run: `xcodebuild test -scheme Markus_v3 -destination 'platform=iOS Simulator,name=iPhone 15'` (CLI) or `⌘U` in Xcode (day-to-day).
+Test files live next to the implementation in `Markus_v3Tests/` (unit) and `Markus_v3UITests/` (UI) — both bundled into the Xcode project. Per-feature spec tests under `features/[name]-[#]/tests/` are reference / human-readable specs; they're not part of the Xcode test target.
 
 ## Out of scope
 [List what this codebase explicitly does not do. Populated per app.]
