@@ -34,13 +34,13 @@ No pattern-reuse markers in `design.md` (this is the first iOS surface in the re
 **Lens:** Security
 **Finding:** design.md "Dependencies" pins MarkdownUI as `>= 2.4.0`. With SwiftPM resolution, a future build could pull in a 3.x release with breaking API changes or, worse, a compromised intermediate version. The right pin for a single external dep on a critical render path is `.upToNextMinor(from: "2.4.0")`. Located: design.md, Dependencies section.
 **Recommended action:** `t3-architecture` — change the version constraint to `.upToNextMinor(from: "2.4.0")` (or pin to exact minor) and note it in the design.
-**Status:** open (routed to `/t3-architecture`)
+**Status:** addressed (design.md Dependencies — pinned to `.upToNextMinor(from: "2.4.0")`)
 
 ### F-006 — LOW — Security / Standards compliance
 **Lens:** Security
 **Finding:** design.md component #10 says `PrivacyInfo.xcprivacy` declares "no required-reason API usage beyond the standard file-access categories" — but doesn't enumerate which categories. Apple's required-reason API rules (iOS 17+) demand explicit declarations for APIs like `NSPrivacyAccessedAPICategoryFileTimestamp`, `NSPrivacyAccessedAPICategoryUserDefaults`, and `NSPrivacyAccessedAPICategoryDiskSpace`. `UIDocument` internally calls file-timestamp APIs at minimum. Concrete failure mode: App Store submission is rejected for an incomplete Privacy Manifest. Located: design.md, component #10.
 **Recommended action:** `t3-architecture` — enumerate the expected required-reason API categories in the design (at minimum `FileTimestamp`; likely `UserDefaults` if any preferences are stored later), each with the standard "C617.1" / equivalent reason code.
-**Status:** open (routed to `/t3-architecture`)
+**Status:** addressed (design.md component #10 — enumerates `FileTimestamp` C617.1, `UserDefaults` CA92.1, `DiskSpace` E174.1 with the standard reason codes)
 
 ### F-007 — LOW — Coverage
 **Lens:** Coverage
