@@ -39,7 +39,7 @@ If concern #1 is fixed, concern #2 is just an implementation discovery — the d
 This intersects with the AC-A11Y additions already absorbed into the feature: those two adds established that minimum accessibility surface lives here, not Roadmap #7. The toast is one of those surfaces.
 **Located:** design.md component #8 (`ToastModifier`); requirements.md AC-RECOVER-2.
 **Recommended action:** `t3-architecture` — pair the visual toast with `UIAccessibility.post(notification: .announcement, argument: "Copied")` so VoiceOver speaks the confirmation. Add an AC-A11Y-3 in requirements (small enough that `t3-requirements` may want to absorb it too).
-**Status:** open
+**Status:** addressed (requirements side) by requirements.md AC-A11Y-3; architecture side (the `UIAccessibility.post` call itself) still open and will be picked up by `/t3-architecture`
 
 ## Resolved findings
 

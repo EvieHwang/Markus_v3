@@ -120,22 +120,27 @@ These are explicitly **not** part of walking-skeleton-1. Each maps to a later Ro
 ## Standards check
 
 - **Apple HIG (Interface).** The skeleton uses the system document browser and a standard navigation bar; HIG compliance is largely inherited from system controls. No custom chrome competes for it.
-- **WCAG 2.1 AA (Accessibility).** A full accessibility pass is deferred to Roadmap #7. The skeleton inherits default UIKit/SwiftUI accessibility for most surfaces, **plus two minimum additions absorbed into this feature** because retrofitting them later is more expensive than adding them now:
+- **WCAG 2.1 AA (Accessibility).** A full accessibility pass is deferred to Roadmap #7. The skeleton inherits default UIKit/SwiftUI accessibility for most surfaces, **plus three minimum additions absorbed into this feature** because retrofitting them later is more expensive than adding them now:
   - AC-A11Y-1: The eye-icon toolbar item in raw mode has a VoiceOver label of "Show rendered" (or equivalent).
   - AC-A11Y-2: The rendered document exposes an "Edit" accessibility custom action equivalent to the tap-to-edit gesture, so VoiceOver users can switch to raw mode without simulating a tap.
-  Anything beyond these two — heading/list/link semantics in rendered view, Dynamic Type tuning, contrast verification, traits on every element — remains in Roadmap #7.
+  - AC-A11Y-3: *Addresses adversarial F-008 (requirements side).* The "Copy contents to clipboard" action (AC-RECOVER-1) posts a VoiceOver announcement ("Copied") in addition to showing the visual toast (AC-RECOVER-2). The announcement and the toast are independent — the announcement must fire for VoiceOver users even when the toast is suppressed or missed.
+  Anything beyond these three — heading/list/link semantics in rendered view, Dynamic Type tuning, contrast verification, traits on every element — remains in Roadmap #7.
 - **OWASP Top 10 (Security).** Applicability is minimal — no network, no auth, no server. The skeleton must not log file contents or paths to anywhere persistent beyond what iOS itself does.
 - **OpenAPI (API contracts).** N/A — no API surface.
 
 ## Notes on changes
 
-**Second pass — addresses adversarial findings.** Changes from the prior version:
+**Third pass — addresses adversarial F-008 (requirements side).** New change:
+
+- **AC-A11Y-3 added** — the Copy action posts a VoiceOver announcement so blind users get audible confirmation; toast remains for sighted users. Architecture side (the `UIAccessibility.post` call wiring) is picked up by `/t3-architecture`.
+
+**Second-pass changes (retained):**
 
 - **EC-2 tightened** — files ≥ 500 KB open into raw mode by default (addresses F-004). Avoids the "frozen app" UX that "does not deadlock" allowed.
 - **EC-6 tightened** — explicitly acknowledges scene tear-down resets mode to rendered (addresses F-001). The contract now matches the OS reality; SceneStorage-backed mode restoration is deferred to a later feature.
 - **EC-13 expanded** — iCloud download-pending file shows an explicit loading indicator instead of "whatever loading affordance the system provides" (addresses F-007 partial — architecture handles the `UIDocument` state observation).
 - **AC-RECOVER-1, AC-RECOVER-2 added** — save failures present a "Copy contents to clipboard" action so the user can rescue their work (addresses F-002). Full Save As remains Roadmap #3.
 
-No standards-creep introduced by these changes — the recovery alert is a minimum surface, not a settings screen or workflow.
+No standards-creep introduced by AC-A11Y-3 — it's a single accessibility hook on an existing surface, not a broader pass.
 
 Requirements stable — no further requirements-side adversarial findings open.
