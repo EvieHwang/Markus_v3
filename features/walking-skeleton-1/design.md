@@ -31,7 +31,8 @@ The document view is a single SwiftUI `View` that flips between two child views 
 - `final class MarkdownDocument: ReferenceFileDocument`.
 - `readableContentTypes = [UTType.markdown, UTType("net.daringfireball.markdown")!]` covering `.md` and `.markdown` extensions (AC-2.1, EC-5).
 - Holds `@Published var text: String` for the raw source.
-- `init(configuration:)` decodes the file's bytes as UTF-8; on decode failure, throws a non-fatal `DocumentError.invalidEncoding` which the host surfaces with an alert and dismisses (EC-4).
+- Holds `let initialByteSize: Int` — the size of the file as read; used by `DocumentView` to choose the initial mode per EC-2 (≥ 500 KB → raw mode by default).
+- `init(configuration:)` decodes the file's bytes as UTF-8; on decode failure, throws a non-fatal `DocumentError.invalidEncoding` which the host surfaces with an alert and dismisses (EC-4). Captures `configuration.file.regularFileContents?.count` into `initialByteSize`.
 - `snapshot(contentType:)` returns the current `text`; `fileWrapper(snapshot:configuration:)` writes UTF-8 bytes.
 - A `markDirty()` helper registers a no-op undo against the host's `UndoManager` — this is how SwiftUI's DocumentGroup learns the document is dirty and schedules a save.
 
@@ -40,13 +41,15 @@ The document view is a single SwiftUI `View` that flips between two child views 
 
 ### 4. Document view — `DocumentView.swift`
 - The top-level editor view bound to a `MarkdownDocument`.
-- `@State private var mode: DocumentMode = .rendered` (rendered is the default on every open — AC-2.2).
+- `@State private var mode: DocumentMode` — initial value computed in `.onAppear` from `document.initialByteSize`: ≥ 500 KB → `.raw`, otherwise `.rendered` (AC-2.2, EC-2 *addresses adversarial F-004*). The 500 KB threshold is a single constant `private static let largeFileByteThreshold = 500 * 1024`.
 - `@State private var hasUnsavedChanges = false` (drives the autosave debouncer).
-- Body switches between `RenderedView` and `RawEditorView` based on `mode`.
+- `@State private var activeAlert: ActiveAlert?` — drives the save-failure alert (see component #8).
+- Body switches between `RenderedView`, `RawEditorView`, and `DocumentLoadingView` (see component #12) based on `mode` and the document's load state.
 - Navigation bar title is the document's filename without extension (AC-2.3), pulled from the host `UIDocument.fileURL` via SwiftUI's `DocumentConfiguration` environment.
 - Toolbar item (only when `mode == .raw`): eye-icon button labeled "Show rendered" that sets `mode = .rendered`. The label is set via `.accessibilityLabel("Show rendered")` (AC-A11Y-1).
 - On `mode` change to `.rendered`: trigger a save immediately (AC-5.2).
 - `.onChange(of: scenePhase)` — on `.background`, trigger a save (AC-4.4).
+- Observes `SaveStatusObserver` (component #11) for save failures; on a failure event, sets `activeAlert = .saveFailed(...)`.
 
 ### 5. Rendered view — `RenderedView.swift`
 - Wraps a `Markdown` view from the **MarkdownUI** Swift package (see Dependencies). MarkdownUI renders GitHub Flavored Markdown natively in SwiftUI: CommonMark + tables + task lists + strikethrough + autolinks (AC-2.1, EC-3).
@@ -69,19 +72,50 @@ The document view is a single SwiftUI `View` that flips between two child views 
 - The save action is to call `document.markDirty()` again at idle, then ask the `UndoManager` to `setActionIsDiscardable(true)` so the autosave doesn't pollute the undo stack with redundant entries. DocumentGroup's auto-save-in-place flushes the document to disk on the next system tick.
 - Implementation uses a `Task` with `try await Task.sleep` + `Task.checkCancellation`, on the main actor.
 
-### 8. Error surface — `DocumentError.swift` + a small `errorBanner` SwiftUI modifier
-- `enum DocumentError: Error { case invalidEncoding, saveFailed(underlying: Error), fileMissing }`.
-- `saveFailed` covers EC-9, EC-10, EC-12 — save fails non-fatally; the in-memory text is preserved and a transient `.alert` or banner is shown.
-- `invalidEncoding` covers EC-4 — the document fails to open and the user is bounced back to the browser with an alert.
-- `fileMissing` is reserved for use when a write fails because the file no longer exists at the original URL; the skeleton surfaces it as a saveFailed for now. Full handling (Save As, deletion banner) is Roadmap #3.
+### 8. Error surface — `DocumentError.swift` + `ActiveAlert.swift` + `ToastModifier.swift`
+*Addresses adversarial F-002 (via AC-RECOVER-1/2 design).*
+
+- `enum DocumentError: Error { case invalidEncoding, saveFailed(underlying: Error), fileMissing, iCloudDownloadFailed }`.
+- `enum ActiveAlert: Identifiable { case saveFailed(DocumentError), invalidEncoding, iCloudDownloadFailed }` — drives a single SwiftUI `.alert(item:)` modifier on `DocumentView`.
+- **Save-failed alert** (AC-RECOVER-1): two buttons — `"Copy contents to clipboard"` (writes `document.text` to `UIPasteboard.general.string`, then sets `toast = "Copied"`) and `"Dismiss"`. Body text names the failure ("Couldn't save. Your edits are still in memory and can be copied.").
+- **Toast** (AC-RECOVER-2): `ToastModifier` shows a transient bottom-aligned `Text` for 2 s after a copy. Implemented as a SwiftUI `View` modifier with a `@State` timer; no new dependency.
+- `invalidEncoding` (EC-4): the document fails to open and the user is bounced back to the browser with an alert; no Copy action (there's no in-memory text to copy).
+- `iCloudDownloadFailed` (EC-13 failure path): user-visible alert; user dismisses back to browser.
+- `fileMissing`: surfaced as a `saveFailed(.fileMissing)` for the skeleton — the recovery alert with Copy still applies. Full deletion banner is Roadmap #3.
 
 ### 9. UTType registration
 - `Info.plist` declares the app's document types as conforming to `public.plain-text` with extensions `md` and `markdown` and identifier `net.daringfireball.markdown` (the de-facto UTI used by other markdown apps so files associated with our app are picked up cleanly).
 - This is what makes `DocumentGroup` filter the browser to markdown files (AC-1.3).
 
 ### 10. Privacy Manifest — `PrivacyInfo.xcprivacy`
-- Declares **no** data collection, no tracking, no required-reason API usage beyond the standard file-access categories.
+*Addresses adversarial F-006.*
+
+- `NSPrivacyTracking = false`.
+- `NSPrivacyTrackingDomains = []`.
+- `NSPrivacyCollectedDataTypes = []`.
+- `NSPrivacyAccessedAPITypes` enumerates the required-reason API categories `UIDocument` and `DocumentGroup` actually touch:
+  - `NSPrivacyAccessedAPICategoryFileTimestamp` with reason `C617.1` (file timestamp inspected for display in document metadata; reading/writing in-place).
+  - `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1` (SwiftUI/DocumentGroup internals persist scene-state/document-state via `UserDefaults`; we do not write our own preferences in this feature, but the framework does on our behalf and Apple's reviewer holds the manifest accountable).
+  - `NSPrivacyAccessedAPICategoryDiskSpace` with reason `E174.1` (`UIDocument` checks free space before saving; not user-facing but invoked by the framework).
 - Required for App Store submission in 2026.
+- If the build agent finds during implementation that any of the above APIs are NOT actually called by `UIDocument`/`DocumentGroup` on iOS 26 (because Apple reorganized the internals), drop the unused entry — over-declaring is acceptable but wasteful; under-declaring is a submission reject.
+
+### 11. Save status observer — `SaveStatusObserver.swift`
+*Addresses adversarial F-003.*
+
+- `@Observable final class SaveStatusObserver`.
+- On `init(document: UIDocument)`, subscribes to `UIDocument.stateChangedNotification` (Swift 6 / iOS 26 name; previously `UIDocumentStateChangedNotification`) filtered to the host document.
+- Exposes `@Published var lastSaveError: DocumentError?` — set whenever `document.documentState.contains(.savingError)` becomes true. `DocumentView` observes this and triggers the save-failed alert (component #8, AC-RECOVER-1).
+- Also exposes `@Published var isDownloadingFromiCloud: Bool` derived from `document.documentState.contains(.editingDisabled)` AND a non-`.normal` state — used by component #12 to show the iCloud loading view (EC-13 — partially *addresses adversarial F-007*).
+- On deinit, unsubscribes from the notification.
+- All state mutations are on `@MainActor`.
+
+### 12. Document loading view — `DocumentLoadingView.swift`
+*Addresses adversarial F-007 (architecture side) and requirements EC-13.*
+
+- Tiny SwiftUI view: a centered `ProgressView` with the label "Downloading…".
+- `DocumentView` renders this in place of `RenderedView`/`RawEditorView` whenever `saveStatusObserver.isDownloadingFromiCloud == true`.
+- On `SaveStatusObserver`'s state transitioning to a download failure (`document.documentState.contains(.savingError)` while still `.editingDisabled`), `DocumentView` sets `activeAlert = .iCloudDownloadFailed` and dismisses back to the document browser on alert dismissal.
 
 ## Project layout
 
@@ -95,6 +129,8 @@ Markus_v3/
   Documents/
     MarkdownDocument.swift
     DocumentError.swift
+    ActiveAlert.swift
+    SaveStatusObserver.swift
   Models/
     DocumentMode.swift
     AutosaveCoordinator.swift
@@ -102,9 +138,12 @@ Markus_v3/
     DocumentView.swift
     RenderedView.swift
     RawEditorView.swift
+    DocumentLoadingView.swift
+    ToastModifier.swift
 Markus_v3Tests/                  (XCTest unit tests)
   MarkdownDocumentTests.swift
   AutosaveCoordinatorTests.swift
+  SaveStatusObserverTests.swift
 Markus_v3UITests/                (XCUITest end-to-end)
   WalkingSkeletonFlowUITests.swift
 Package.resolved                 (SwiftPM lockfile, committed)
@@ -114,7 +153,7 @@ Package.resolved                 (SwiftPM lockfile, committed)
 
 Single external Swift package:
 
-- **MarkdownUI** — github.com/gonzalezreal/swift-markdown-ui (>= 2.4.0). Pure-SwiftUI GFM renderer with Theme support. Pinned via SwiftPM in the Xcode project; `Package.resolved` is committed.
+- **MarkdownUI** — github.com/gonzalezreal/swift-markdown-ui, pinned via SwiftPM as `.upToNextMinor(from: "2.4.0")` (*addresses adversarial F-005*). Pure-SwiftUI GFM renderer with Theme support. `Package.resolved` is committed. Bumping past a minor (2.5 → 2.6) requires an intentional change in the Xcode project's package settings, not an unattended `swift package update`.
 
 This is the project's first external dependency. Alternatives considered and rejected:
 - **swift-markdown** (Apple) — parser only; would require building our own SwiftUI renderer (too much for a skeleton).
@@ -144,22 +183,28 @@ Each seam has an obvious extension point for the next Roadmap feature:
 ## Build agent must know
 
 - **Do not invent file-management UI.** `DocumentGroup` is the only entry point. If a custom list of recent files seems tempting, that's Roadmap #2 (and even there, it's "reopen the last file directly," not a list).
-- **Do not persist mode.** `@State` only; reset on every document open. Mode survives only across a backgrounding (per EC-6) because SwiftUI keeps the view alive.
+- **Do not persist mode.** `@State` only; reset on every document open. Mode survives short backgrounding (scene alive) but resets on scene tear-down per EC-6 — this is the explicit acceptable behavior, not a bug to fix.
 - **Do not copy the file anywhere.** All reads/writes go through the `ReferenceFileDocument` lifecycle; do not write `text` to `Documents/` or `Caches/` or `tmp/` for any reason in this feature.
 - **Do not tune the text editor.** AC-4.6 mandates default behavior. Smart quotes, autocorrect, list continuation are Roadmap #6.
 - **Do not add a settings screen, an onboarding flow, or any nav stack pages.** Project-level out-of-scope.
 - **All UI work runs on `@MainActor`.** Swift 6 strict concurrency is on; document state mutations stay on the main actor.
 
+## Changes from the prior pass
+
+Second-pass design — incorporates the requirements 2nd pass and addresses the four architecture-routed adversarial findings.
+
+- **Component #2 (MarkdownDocument)** — added `initialByteSize` to support EC-2's 500 KB threshold.
+- **Component #4 (DocumentView)** — initial mode is computed from `initialByteSize` (EC-2); observes `SaveStatusObserver` for save failures; renders `DocumentLoadingView` when iCloud download is pending.
+- **Component #8 (Error surface)** — added `ActiveAlert` enum and `ToastModifier`; save-failed alert offers "Copy contents to clipboard" + "Dismiss" with a confirmation toast (AC-RECOVER-1, AC-RECOVER-2).
+- **Component #10 (Privacy Manifest)** — required-reason API categories enumerated explicitly (F-006).
+- **Component #11 (SaveStatusObserver, new)** — subscribes to `UIDocument.stateChangedNotification`, exposes `lastSaveError` and `isDownloadingFromiCloud` (F-003 + F-007 architecture side).
+- **Component #12 (DocumentLoadingView, new)** — centered progress view for iCloud download (EC-13, F-007).
+- **Dependencies** — MarkdownUI pinned to `.upToNextMinor(from: "2.4.0")` (F-005).
+
 ## Requirements implications
 
-Three small clarifications surfaced; none reshape the requirements but they're worth recording:
+Three pre-existing clarifications from the first pass remain (AC-3.3 / AC-3.4 / AC-4.4 — see prior commits for context). No new clarifications from this pass.
 
-1. **AC-3.3 (link tap in rendered mode → raw mode).** Implementation is via SwiftUI's `OpenURLAction` environment override. The exact behavior: the tap target is the link's hit area, not the surrounding document area, but the resulting action (switch to raw mode, no link follow) is identical to the AC. No requirements change.
-
-2. **AC-3.4 (tap-to-edit requires a second tap to place cursor).** Naturally satisfied: a SwiftUI `TextEditor` requires a tap to gain focus once shown. The first tap was the mode switch (handled by `DocumentView` before `TextEditor` is rendered); the second tap places the cursor inside `TextEditor`. No requirements change.
-
-3. **AC-4.4 typing-pause autosave.** The 500 ms idle save trigger is implemented as a debounced call to `markDirty()`, not a direct disk write — DocumentGroup's auto-save-in-place is the actual disk-writer and runs on its own cadence (typically within a second of the dirty mark). The user-visible latency from "stop typing" to "file on disk updated" may therefore be ~500 ms (debounce) + the system autosave tick (sub-second), totaling under ~1.5 s in practice. If the requirement is "edits hit disk within 500 ms of the last keystroke," that's tighter than this design provides and we'd need an explicit save call. Surfacing for confirmation.
+The 500 KB threshold for EC-2 is a design constant declared in `DocumentView`. If tuning is desired later (e.g., 250 KB or 1 MB based on real-world testing), it's a one-line change with no cascading impact on requirements.
 
 ## Architecture stable — no requirements changes flagged
-
-(Item 3 above is a clarification, not a change. If the user reads it and wants tighter latency, they should re-run `/t3-requirements` to revise AC-4.4 explicitly; otherwise this design satisfies the requirements as written.)

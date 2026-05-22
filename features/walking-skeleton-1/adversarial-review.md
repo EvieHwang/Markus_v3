@@ -22,7 +22,7 @@ No pattern-reuse markers in `design.md` (this is the first iOS surface in the re
 **Lens:** Failure modes
 **Finding:** `AutosaveCoordinator` (design.md component #7) doesn't trigger saves directly — it just calls `markDirty()` and relies on `UIDocument`'s built-in auto-save-in-place to flush. Save errors from `UIDocument` are reported via `UIDocument.documentStateChangedNotification`, which neither `DocumentView`, `MarkdownDocument`, nor `AutosaveCoordinator` subscribes to in the design. Concrete failure mode: iCloud Drive goes offline mid-session, `UIDocument` enters `.savingError`, the user keeps editing for 30 minutes believing everything is saved, then closes the app — the file on disk is the pre-offline version, and the alert path from F-002 never fires because nothing observes the error notification.
 **Recommended action:** `t3-architecture` — add a save-status observer (e.g., extend `MarkdownDocument` or add a `SaveStatusCoordinator`) that subscribes to `UIDocument.documentStateChangedNotification` and pipes errors into the existing `errorBanner` surface.
-**Status:** open (routed to `/t3-architecture` — requirements.md AC-RECOVER-1 establishes the alert surface this observer will feed into)
+**Status:** addressed (design.md component #11 SaveStatusObserver — subscribes to `UIDocument.stateChangedNotification`, exposes `lastSaveError`; `DocumentView` pipes it into the AC-RECOVER-1 alert)
 
 ### F-004 — MEDIUM — Coverage
 **Lens:** Coverage
@@ -46,7 +46,7 @@ No pattern-reuse markers in `design.md` (this is the first iOS surface in the re
 **Lens:** Coverage
 **Finding:** Requirements EC-13 says an iCloud-download-pending file "presents whatever loading affordance the system provides" — `UIDocument` actually surfaces this via `documentState.contains(.editingDisabled)` and the file may not be readable until download completes. design.md doesn't specify what `MarkdownDocument.init(configuration:)` does when the read returns an empty `Data` because the file body isn't downloaded yet. Concrete failure mode: user picks a not-yet-downloaded iCloud file; `init(configuration:)` succeeds with an empty `text`; the rendered view is blank; the user thinks the file is corrupt. Located: design.md, `MarkdownDocument` component.
 **Recommended action:** `t3-architecture` — add a note that the document observes `.editingDisabled` and shows a loading indicator while the iCloud body is downloading; or `t3-requirements` to specify the user-visible affordance explicitly.
-**Status:** addressed (partial) by requirements.md EC-13 — user-visible spec is now explicit (spinner + "Downloading…" + offline-failure alert); architecture-side `UIDocument` state observation still open and will be picked up by `/t3-architecture`
+**Status:** addressed (requirements.md EC-13 specifies the user-visible affordance; design.md component #11 `SaveStatusObserver.isDownloadingFromiCloud` observes `.editingDisabled` and component #12 `DocumentLoadingView` renders the spinner)
 
 ## Resolved findings
 
@@ -56,13 +56,13 @@ No pattern-reuse markers in `design.md` (this is the first iOS surface in the re
 
 ## Severity summary
 
-After the second-pass `/t3-requirements` run:
+After both 2nd-pass runs (`/t3-requirements` then `/t3-architecture`):
 
 - HIGH: 0 — DAG generation not blocked.
-- MEDIUM: 4 total — F-001 addressed, F-002 addressed, F-004 addressed, **F-003 still open** (awaiting `/t3-architecture`).
-- LOW: 3 total — F-007 partially addressed (architecture side still open), **F-005 still open**, **F-006 still open** (both awaiting `/t3-architecture`).
+- MEDIUM: 4 total — **all addressed** (F-001, F-002, F-003, F-004).
+- LOW: 3 total — **all addressed** (F-005, F-006, F-007).
 
-Next adversarial pass will verify the addressed findings and promote them to `resolved` if the fixes survive re-attack.
+All 7 findings are now `addressed` and await verification on the next `/t3-adversarial` re-run, which will re-attack each fix and promote to `resolved` if it holds.
 
 ## Re-run guard
 
