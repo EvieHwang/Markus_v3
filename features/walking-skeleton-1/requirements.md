@@ -75,22 +75,26 @@
 
 ### File content
 - **EC-1: Empty file.** Opens successfully; rendered view is blank; raw editor shows empty text. Editing and saving an empty file produces a non-empty file on disk if content is added.
-- **EC-2: Very large file (e.g., 1 MB+).** Opens within a reasonable time; rendering may take a moment but does not deadlock. No hard size limit is enforced by the skeleton; performance tuning is deferred.
+- **EC-2: Very large file.** *Addresses adversarial F-004.* Files **≥ 500 KB** open into **raw mode by default** (skipping the rendered-mode default of AC-2.2 for this case only); the user can tap the eye icon to render on demand. Below 500 KB, opens in rendered mode per AC-2.2. Rendering of large files may take a moment but must not freeze the UI for >2 s of unresponsive input; this is enforced by the size threshold, not by async rendering (deferred). The 500 KB threshold is a measured-byte file-size check, not a parsed-content check, so it works before the file is read fully.
 - **EC-3: GFM features present.** Tables, task lists (checkboxes, both checked and unchecked), strikethrough, autolinks, fenced code blocks, and ATX/Setext headings all render visibly (need not be pixel-perfect, but must be visually recognizable as their construct).
 - **EC-4: Invalid UTF-8 or unusual encoding.** Best-effort decode as UTF-8; if decode fails, surface a non-blocking error and return to the document browser. The skeleton does not attempt encoding detection.
 - **EC-5: File with `.markdown` extension.** Treated identically to `.md`.
 
 ### Lifecycle
-- **EC-6: App backgrounded mid-edit.** Pending edits are saved before the app suspends. On return, the document is re-presented in the same mode the user was in when backgrounded (this mode-on-resume is an exception to AC-5.4, which applies only across explicit close/reopen).
+- **EC-6: App backgrounded mid-edit.** *Addresses adversarial F-001.* Pending edits are saved before the app suspends. On return **while the scene is still alive** (short backgrounding, typical case), the document is re-presented in the same mode the user was in when backgrounded. After **scene tear-down** (long backgrounding or OS memory pressure), `@State` is lost and the document re-presents in rendered mode per AC-2.2 / AC-5.4 — this is a known consequence of skeleton-level state handling and is acceptable for this feature. SceneStorage-backed mode restoration is deferred (likely Roadmap #2 alongside last-file resume).
 - **EC-7: App killed mid-edit before save fires.** Unsaved edits may be lost. The skeleton makes no autosave guarantee tighter than the AC-4.4 triggers. (Stronger autosave is deferred.)
 - **EC-8: Rapid mode switching.** Switching modes repeatedly in quick succession must not crash, deadlock, or corrupt the document. The visible mode is whichever the user landed on last.
 
 ### File system
-- **EC-9: File deleted externally while open.** Skeleton is not required to detect this. If the next save fails because the file is gone, the save error is surfaced non-fatally (e.g., a toast or alert) and the in-memory content is preserved. The deletion banner with Save As is Roadmap #3.
+- **EC-9: File deleted externally while open.** Skeleton is not required to detect this proactively. If the next save fails because the file is gone, the save error is surfaced non-fatally (alert per AC-RECOVER-1) and the in-memory content is preserved. The deletion banner with Save As is Roadmap #3.
 - **EC-10: File moved externally while open.** Skeleton is not required to follow the move. If the next save fails, behavior is the same as EC-9. Follow-on-move is Roadmap #3.
 - **EC-11: File modified externally while open.** Skeleton is not required to detect this. The next save overwrites the external change (last-write-wins). External-change detection and the three-option conflict sheet are Roadmap #3.
-- **EC-12: Read-only file or write permission denied.** Save fails with a user-visible error; in-memory content is preserved; the user can attempt Share to copy content elsewhere.
-- **EC-13: iCloud download pending.** A file whose contents have not yet downloaded from iCloud presents whatever loading affordance the system provides; the rendered view appears once contents are available.
+- **EC-12: Read-only file or write permission denied.** Save fails; alert surface per AC-RECOVER-1; in-memory content is preserved.
+- **EC-13: iCloud download pending.** *Addresses adversarial F-007 (partial).* A file whose contents have not yet downloaded from iCloud must not appear as a blank document. While the download is pending, the document view shows a loading indicator (system progress spinner with the text "Downloading…"). The rendered view appears once contents are available. If the download fails (e.g., user goes offline), surface a non-fatal alert and return to the document browser.
+
+### Save-failure recovery
+- **AC-RECOVER-1.** *Addresses adversarial F-002.* When any save fails (EC-9 / EC-10 / EC-12, or a silent `UIDocument` save error surfaced per F-003), the user is shown a non-blocking alert with the following actions: **"Copy contents to clipboard"** (writes the current in-memory `text` to `UIPasteboard.general`) and **"Dismiss"**. The in-memory content remains intact and editable after dismiss. This is the skeleton's minimum recovery surface — full Save As is Roadmap #3.
+- **AC-RECOVER-2.** The "Copy contents to clipboard" action must not silently fail. After the copy, the alert is dismissed and a brief confirmation ("Copied") appears (toast or similar).
 
 ### Browser interaction
 - **EC-14: User cancels file picker.** Returns to whatever previous state the document browser was in; app does not crash.
@@ -125,4 +129,13 @@ These are explicitly **not** part of walking-skeleton-1. Each maps to a later Ro
 
 ## Notes on changes
 
-First pass; no prior `design.md` or `adversarial-review.md` to reconcile against.
+**Second pass — addresses adversarial findings.** Changes from the prior version:
+
+- **EC-2 tightened** — files ≥ 500 KB open into raw mode by default (addresses F-004). Avoids the "frozen app" UX that "does not deadlock" allowed.
+- **EC-6 tightened** — explicitly acknowledges scene tear-down resets mode to rendered (addresses F-001). The contract now matches the OS reality; SceneStorage-backed mode restoration is deferred to a later feature.
+- **EC-13 expanded** — iCloud download-pending file shows an explicit loading indicator instead of "whatever loading affordance the system provides" (addresses F-007 partial — architecture handles the `UIDocument` state observation).
+- **AC-RECOVER-1, AC-RECOVER-2 added** — save failures present a "Copy contents to clipboard" action so the user can rescue their work (addresses F-002). Full Save As remains Roadmap #3.
+
+No standards-creep introduced by these changes — the recovery alert is a minimum surface, not a settings screen or workflow.
+
+Requirements stable — no further requirements-side adversarial findings open.
