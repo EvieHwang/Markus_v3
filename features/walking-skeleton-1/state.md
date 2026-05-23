@@ -4,7 +4,7 @@ Initialized by `/t3-generate-dag`. Updated wave-by-wave by `/t3-next-step`. The 
 
 | ID    | Description                                  | Wave | Status  | Notes |
 |-------|----------------------------------------------|------|---------|-------|
-| T-001 | Xcode project + dependency + manifest        | 1    | complete | SHA pending commit; built on iPhone 17 simulator (iPhone 15 not installed locally) |
+| T-001 | Xcode project + dependency + manifest        | 1    | complete | 39a5be2; built on iPhone 17 simulator (iPhone 15 not installed locally) |
 | T-002 | Small types: DocumentMode, DocumentError, ActiveAlert | 2    | pending |       |
 | T-003 | MarkdownDocument                             | 2    | pending |       |
 | T-004 | AutosaveCoordinator                          | 3    | pending |       |
