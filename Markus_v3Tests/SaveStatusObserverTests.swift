@@ -3,7 +3,7 @@ import Foundation
 import UIKit
 @testable import Markus_v3
 
-@Suite("SaveStatusObserver — T-005")
+@Suite("SaveStatusObserver — T-005", .serialized)
 struct SaveStatusObserverTests {
 
     @MainActor
