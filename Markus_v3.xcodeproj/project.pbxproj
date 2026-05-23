@@ -39,10 +39,10 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		4C589B502FC23FC00090853C /* Exceptions for Markus_v3 */ = {
+		4C589B502FC23FC00090853C /* Exceptions for "Markus_v3" folder in "Markus_v3" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"App/Info.plist",
+				App/Info.plist,
 			);
 			target = 4C589B252FC23FBF0090853C /* Markus_v3 */;
 		};
@@ -52,7 +52,7 @@
 		4C589B282FC23FBF0090853C /* Markus_v3 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				4C589B502FC23FC00090853C /* Exceptions for Markus_v3 */,
+				4C589B502FC23FC00090853C /* Exceptions for "Markus_v3" folder in "Markus_v3" target */,
 			);
 			path = Markus_v3;
 			sourceTree = "<group>";
