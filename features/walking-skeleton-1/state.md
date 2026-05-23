@@ -7,9 +7,9 @@ Initialized by `/t3-generate-dag`. Updated wave-by-wave by `/t3-next-step`. The 
 | T-001 | Xcode project + dependency + manifest        | 1    | complete | 39a5be2; built on iPhone 17 simulator (iPhone 15 not installed locally) |
 | T-002 | Small types: DocumentMode, DocumentError, ActiveAlert | 2    | complete | 007bf13 |
 | T-003 | MarkdownDocument                             | 2    | complete | e56ae65 |
-| T-004 | AutosaveCoordinator                          | 3    | pending |       |
-| T-005 | SaveStatusObserver                           | 3    | pending |       |
-| T-006 | ToastModifier                                | 3    | pending |       |
+| T-004 | AutosaveCoordinator                          | 3    | in-progress |       |
+| T-005 | SaveStatusObserver                           | 3    | in-progress |       |
+| T-006 | ToastModifier                                | 3    | in-progress |       |
 | T-007 | RenderedView                                 | 4    | pending |       |
 | T-008 | RawEditorView                                | 4    | pending |       |
 | T-009 | DocumentLoadingView                          | 4    | pending |       |
