@@ -13,4 +13,4 @@ Initialized by `/t3-generate-dag`. Updated wave-by-wave by `/t3-next-step`. The 
 | T-007 | RenderedView                                 | 4    | complete | e03c9d2 |
 | T-008 | RawEditorView                                | 4    | complete | e03c9d2 |
 | T-009 | DocumentLoadingView                          | 4    | complete | e03c9d2 |
-| T-010 | DocumentView + Markus_v3App                  | 5    | pending |       |
+| T-010 | DocumentView + Markus_v3App                  | 5    | complete | SHA pending commit |
