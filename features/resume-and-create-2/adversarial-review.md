@@ -14,7 +14,7 @@
 
   The intended semantics is probably session-scoped — "files created **this session** via the create flow open in raw + keyboard; resumed zero-byte files follow the normal mode-from-byte-size default" — but the requirements + design currently encode the byte-size reading. A build agent reading the design will produce one behavior; a test author reading EC-23 will assert the other.
 - **Recommended action:** `t3-requirements` — rewrite AC-4.4 to make the trigger explicitly "newly created via the create flow this session," not "byte size = 0." Then design component #8 follows with a session-flag check (e.g., consult `UntouchedFileTracker.isUntouched(url:)` to decide the initial mode) rather than a byte-size check.
-- **Status:** `open`
+- **Status:** `addressed` — requirements.md AC-4.4 rewritten to trigger on session provenance (membership in `UntouchedFileTracker`) rather than byte size. EC-23's "opens to an empty rendered view" is now consistent with the corrected AC. Design.md component #8 already anticipated this (third pass).
 
 ### F-002 — Multi-scene not explicitly disabled despite "single-scene only" being out-of-scope
 - **Severity:** MEDIUM
