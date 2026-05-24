@@ -66,9 +66,10 @@ A `UIViewRepresentable` that bridges `MarkdownEditorTextView` into SwiftUI.
 **Behavioral constraints:**
 - Text edits flow out through a binding to `document.text`. Every character-level change updates the binding value, which triggers `document.markDirty()` and the autosave debounce in `AutosaveCoordinator` — identical to the pre-migration `TextEditor` behavior.
 - The bridge renders a monospaced body font, matching the pre-migration appearance.
-- Scroll position flows out to `DocumentView` through a `Binding<ScrollAnchor>`. The bridge writes this binding whenever the scroll view settles (on `scrollViewDidEndDecelerating` and `scrollViewDidEndDragging(_:willDecelerate:)` when not decelerating). This keeps `DocumentView`'s anchor fresh for the raw → rendered transition without requiring continuous polling.
+- Scroll position flows out to `DocumentView` through two mechanisms. A `Binding<ScrollAnchor>` is written whenever the scroll view settles (`scrollViewDidEndDecelerating` and `scrollViewDidEndDragging(_:willDecelerate:)` when not decelerating) — this keeps `DocumentView` loosely in sync as the user scrolls. Separately, the bridge exposes a synchronous read `var currentFractionalY: Double { get }` so that `DocumentView` can read the live position at the exact moment of a mode switch, without depending on the binding's last-settled value. *Addresses adversarial F-001.*
 - An incoming `pendingScrollAnchor: ScrollAnchor?` (optional) is consumed exactly once after the `UITextView` is laid out. See §Scroll Anchor Lifecycle.
-- The bridge does not expose its `UITextView` instance directly to SwiftUI callers; all behavioral surface passes through the binding and the anchor.
+- The bridge exposes a synchronous `var currentFractionalY: Double { get }` property that computes `contentOffset.y / max(1, contentSize.height - bounds.height)` against the live `UITextView` state. This is called by `DocumentView` inside the eye-icon action closure before setting `mode = .rendered`, ensuring the anchor reflects the actual scroll position at the instant the mode switch fires — regardless of any in-progress momentum scroll. *Addresses adversarial F-001.*
+- The bridge does not expose its `UITextView` instance directly to SwiftUI callers; all behavioral surface passes through the binding, the anchor, and `currentFractionalY`.
 
 **Coordinator responsibilities:**
 - Implements `UITextViewDelegate`.
@@ -106,6 +107,7 @@ Replaces seam: Raw editor (walking-skeleton-1 `TextEditor` body, same SwiftUI su
 
 **Behavioral constraints:**
 - `DocumentView` never reads the UITextView's internal state directly; it reads a `ScrollAnchor` value produced by `MarkdownTextViewBridge`.
+- **Raw → rendered mode switch:** When the user taps the eye-icon toolbar button, `DocumentView` calls `MarkdownTextViewBridge.currentFractionalY` synchronously inside the action closure before setting `mode = .rendered`. This read happens at the exact moment the switch fires, regardless of whether a momentum scroll is still in progress. The settled-value binding is not used as the transition anchor. *Addresses adversarial F-001.*
 - If a mode switch occurs while both `pendingRawAnchor` and `pendingRenderedAnchor` are non-nil (rapid switching), each transition reads the current-at-the-moment-of-switch anchor and overwrites the pending value. No accumulation of stale anchors is possible.
 - On a programmatic mode switch (no tap, no scroll), `DocumentView` sets the pending anchor to `.top` (`fractionalY: 0`), satisfying AC-2.4 / AC-3.3 defaults.
 
@@ -125,7 +127,7 @@ Extends seam: Mode switcher (adds anchor state; tap-to-edit and eye-icon paths r
 - `RenderedView` also accepts a `pendingScrollAnchor: ScrollAnchor?` from `DocumentView` for the raw → rendered return path. It applies this anchor on first layout/appear and clears it. See §Scroll Anchor Lifecycle.
 - The pre-existing `OpenURLAction` override (link tap → raw mode) uses `fractionalY: 0` as the anchor (no tap location is meaningful for a link activation), satisfying AC-2.4.
 
-`RenderedView` must access the underlying `UIScrollView` to read content offset and content height. This is done via a `UIViewRepresentable` coordinator that wraps `RenderedView`'s scroll view, or — preferably — by reading `GeometryReader`-derived values if MarkdownUI exposes them. If neither is clean, a `UIScrollView` subclass proxy registered via `UIViewRepresentable` is acceptable. The build agent chooses the cleanest available approach; the behavioral contract (fractional y from content area at tap time) is what matters.
+`RenderedView` must access the underlying `UIScrollView` to both read the tap's content-area y-position and to apply an incoming fractional anchor. `ScrollViewReader` cannot satisfy either need — it only scrolls to named view IDs and has no API for fractional offsets. The required approach is a `UIScrollView` proxy: a `UIViewRepresentable` that locates the `UIScrollView` driving the `RenderedView` scroll container and exposes `contentOffset`, `contentSize`, and `setContentOffset(_:animated:)` directly. The behavioral contract is: (1) the fractional y reported on tap is `tapContentY / max(1, totalContentHeight)` from the live `UIScrollView` state at tap time; (2) the anchor is applied by setting `scrollView.contentOffset.y = fractionalY × max(0, contentSize.height - bounds.height)`, clamped to `[0, contentSize.height - bounds.height]`, after layout is complete and before the first visible frame (opacity-0 reveal in force). *Addresses prescription feedback §6 ScrollViewReader.*
 
 Extends seam: Rendered view (adds tap-location reporting and incoming scroll anchor application).
 
@@ -180,20 +182,42 @@ The tap event and the mode switch happen in the same gesture callback, on the ma
 
 Steps 3–4 happen within the same synchronous closure on the main actor, so the anchor is always set before the mode flip is visible.
 
+### How the raw → rendered mode switch reads a live scroll position
+
+When the eye-icon is tapped, the action closure fires synchronously on the main actor. The correct position is the raw editor's live `contentOffset` at that instant — not the cached binding value, which reflects only the last settled scroll position. The lifecycle is:
+
+1. User taps the eye-icon toolbar button. The action closure fires on `@MainActor`.
+2. `DocumentView` calls `MarkdownTextViewBridge.currentFractionalY` — a synchronous property that computes `contentOffset.y / max(1, contentSize.height - bounds.height)` against the live `UITextView` state at that instant.
+3. `DocumentView` stores `ScrollAnchor(fractionalY: currentFractionalY)` in `pendingRenderedAnchor`.
+4. `DocumentView` sets `mode = .rendered`.
+5. SwiftUI replaces `RawEditorView` with `RenderedView`. `RenderedView` receives `pendingRenderedAnchor` as a prop.
+6. See §Deferred apply below.
+
+This read is a direct UIKit property access on the main actor — it is not a delegate callback and is not subject to scroll-deceleration timing. A momentum scroll that is still in progress at step 2 does not affect the accuracy of the read; `contentOffset` always reflects the current physical position. *Addresses adversarial F-001.*
+
 ### How the scroll anchor survives the SwiftUI view lifecycle (UITextView not yet laid out)
 
-The `UITextView` cannot receive a `setContentOffset` call until its layout pass has completed — calling it in `makeUIView` or even `updateUIView` may target zero-height content and produce no visible scroll.
+The `UITextView` cannot receive a `setContentOffset` call until its layout pass has completed — calling it before `contentSize` is finalized may target zero-height content and produce no visible scroll.
 
-**Deferred-apply pattern:**
+**Deferred-apply pattern (behavioral constraint, not API prescription):**
 
-- `MarkdownTextViewBridge` holds a `pendingScrollAnchor: ScrollAnchor?` input and an `@State private var anchorApplied: Bool` inside the `Coordinator`.
+The behavioral requirement is: **the scroll offset must be applied before the first frame the user sees**. How the build agent achieves this is an implementation choice; the constraint is the outcome. Viable approaches include a post-layout callback via `DispatchQueue.main.async`, a `GeometryReader`-triggered apply, or calling `layoutIfNeeded()` before setting `contentOffset`. The build agent selects the most reliable option for the iOS version targeted; if a single async hop proves insufficient (e.g., `contentSize` is not yet final), the agent adds `layoutIfNeeded()` before the offset set or uses a geometry-change trigger.
+
+The pattern structure, regardless of mechanism:
+
+- `MarkdownTextViewBridge` holds a `pendingScrollAnchor: ScrollAnchor?` input and an `anchorApplied` flag inside the `Coordinator`.
 - In `makeUIView`: the text view is created and configured; no scroll is applied yet.
-- In `updateUIView`: if `pendingScrollAnchor != nil && !coordinator.anchorApplied`, the bridge schedules the scroll with `DispatchQueue.main.async`. The async hop ensures UIKit has completed layout before the offset is set. After the apply, `coordinator.anchorApplied = true` and the parent is notified to clear `pendingScrollAnchor` (via a `Binding<ScrollAnchor?>` or a callback closure).
-- Because `updateUIView` runs synchronously on the main actor, and the async hop runs on the same main queue, no data races are possible; the `anchorApplied` flag is main-actor-isolated.
+- In `updateUIView`: if `pendingScrollAnchor != nil && !coordinator.anchorApplied`, the bridge defers the scroll apply until after UIKit has completed layout for this update cycle.
+- After the apply, `coordinator.anchorApplied = true` and the parent is notified to clear `pendingScrollAnchor` (via a `Binding<ScrollAnchor?>` or a callback closure).
+- The `anchorApplied` flag is main-actor-isolated (all UIKit work runs on `@MainActor`); no data races are possible.
 - The text view scrolls to `contentSize.height * fractionalY`, clamped so the offset does not place the bottom of the visible area past the end of content (satisfying AC-2.3 / EC-2.2 / EC-2.3).
 - On an empty document (`contentSize.height == 0` or `bounds.height >= contentSize.height`), the fractional computation produces offset 0 or is skipped; no crash, no NaN (satisfying GF-6).
 
-The same deferred-apply pattern applies in `RenderedView` for the raw → rendered direction, using `ScrollViewReader` or the `UIScrollView` proxy's `setContentOffset` after layout.
+**Opacity-0 reveal (unconditional, required by AC-2.5 and AC-3.4):**
+
+Whenever a non-nil pending anchor is present, the incoming view (`RawEditorView` or `RenderedView`) must start with `opacity 0` and become visible only after the anchor has been applied and the first correctly-positioned frame is ready. A cross-fade reveal (short animation to `opacity 1`) is acceptable; an abrupt top-to-target jump is not. This is unconditional — it applies on all hardware, not only when a flash is observed in testing. The build agent must not skip this pattern because the simulator renders faster than a physical device. This directly satisfies AC-2.5 and AC-3.4 as a design-level constraint, not a conditional implementation note.
+
+The deferred-apply pattern applies in `RenderedView` for the raw → rendered direction, using the `UIScrollView` proxy's `setContentOffset` after layout (see §6 below). `ScrollViewReader` is not used for this purpose — it only scrolls to named view IDs and cannot apply an arbitrary fractional content offset.
 
 ### Exposing scroll position to SwiftUI without violating Swift 6 strict concurrency
 
@@ -270,10 +294,11 @@ The `Editor/` group is new. All other paths retain their walking-skeleton locati
 
 ## Build agent must know
 
-- **Deferred scroll apply is mandatory.** Do not attempt to set `contentOffset` in `makeUIView`. Do not attempt to set it in `updateUIView` without the `DispatchQueue.main.async` hop. The hop is safe and correct; it is not a race — it defers until the current run-loop turn (which includes layout) has completed.
+- **Deferred scroll apply is mandatory.** Do not attempt to set `contentOffset` in `makeUIView`. Do not apply it in `updateUIView` before `contentSize` is finalized. The behavioral requirement is that the offset is applied after UIKit has completed layout for the current update cycle and before the first frame the user sees. A `DispatchQueue.main.async` hop is the common approach; if `contentSize` is not yet final after the hop (device-dependent), call `layoutIfNeeded()` before setting `contentOffset`, or use a geometry-change trigger. The mechanism is an implementation choice; the outcome (offset applied before the first visible frame) is the requirement. *Addresses prescription feedback §Scroll Anchor Lifecycle.*
 - **One replacement, not two inserts, for list continuation.** Using two `insertText` calls will produce two undo steps, violating AC-6.6 and AC-7.5. Always use a single `replace(_:withText:)` or equivalent.
 - **Smart-quote suppression is a UITextInputTraits flag, not a delegate method.** Set `smartQuotesType = .no` and `smartDashesType = .no` directly on the `UITextView` subclass in `makeUIView` (or on the subclass itself). Do not attempt to intercept and replace characters after the fact.
 - **`UITextViewDelegate` and `UIScrollViewDelegate` are the same object.** `UITextView.delegate` covers both text and scroll events; the `Coordinator` implements both protocols in one class.
+- **Opacity-0 reveal is unconditional, not optional.** Whenever a non-nil pending anchor is present, the incoming view starts with `opacity 0` and reveals itself only after the anchor is applied. Do not skip this because the simulator shows no flash — physical devices render differently. This pattern is required by AC-2.5 and AC-3.4 and must not be left as a conditional refinement.
 - **`ScrollAnchor` must be consumed exactly once.** After `MarkdownTextViewBridge` applies a pending anchor, it clears `pendingScrollAnchor` via its binding/callback. If it does not clear it, `updateUIView` will re-apply the scroll on every subsequent SwiftUI update, fighting the user's scroll position.
 - **Rapid mode switching (GF-5).** Each transition computes the anchor fresh from the current scroll state at the moment of the switch. There is no queue of pending anchors; `DocumentView` overwrites `pendingRawAnchor` / `pendingRenderedAnchor` on every transition. Rapid switching cannot accumulate state.
 - **All UI work runs on `@MainActor`.** Swift 6 strict concurrency is on. Every class introduced in this feature that touches UIKit (`MarkdownEditorTextView`, `MarkdownTextViewBridge.Coordinator`) is `@MainActor`. `ScrollAnchor` is `Sendable` and carries no actor annotation.
@@ -285,7 +310,7 @@ The `Editor/` group is new. All other paths retain their walking-skeleton locati
 
 No requirements changes flagged. The requirements are stable and the architecture satisfies all acceptance criteria without contradiction.
 
-One clarification worth noting (not a change): AC-2.5 ("scroll anchor applied before the raw editor is visible") is satisfied by the deferred-apply pattern's timing. The `DispatchQueue.main.async` hop fires within the same run-loop drain that renders the incoming view, so the first committed frame is already scrolled to the target position. If in practice a one-frame flash is observed during implementation (device-dependent layout timing), the correct fix is to hold the view invisible (`.opacity(0)`) until the anchor callback fires and then animate in — this is a permissible implementation refinement, not a requirements change.
+AC-2.5 and AC-3.4 mandate the opacity-0-until-anchor-applied behavior unconditionally — this is a design-level requirement, not an optional implementation refinement. The architecture enforces it as a structural constraint: both `RawEditorView` and `RenderedView` start with `opacity 0` whenever they are presented with a non-nil pending anchor, and reveal themselves (opacity 1, optionally with a short cross-fade) only after the anchor has been applied and cleared. This is not conditional on observing a flash during simulator testing; physical devices render differently and the pattern must be in place from the first implementation. *Addresses prescription feedback §Scroll Anchor Lifecycle (behavioral constraint, not API prescription); also directly satisfies AC-2.5 and AC-3.4.*
 
 ---
 
