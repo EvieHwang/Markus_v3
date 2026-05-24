@@ -59,22 +59,44 @@ A `UITextView` subclass responsible for the text input traits and physical scrol
 
 ---
 
-### 3. `MarkdownTextViewBridge` — `MarkdownTextViewBridge.swift` (new)
+### 3. `RawEditorScrollState` — `RawEditorScrollState.swift` (new)
+
+A lightweight `@MainActor` observable object that vends the live fractional scroll position of the raw editor to `DocumentView`. *Addresses adversarial F-003.*
+
+**Behavioral constraints:**
+- `DocumentView` creates this object as `@StateObject var rawScrollState = RawEditorScrollState()` and owns its lifetime.
+- `DocumentView` passes the instance down to `RawEditorView`, which passes it to `MarkdownTextViewBridge`.
+- The bridge's `Coordinator` holds a strong reference to `rawScrollState` and writes `rawScrollState.currentFractionalY` from `scrollViewDidScroll` on every scroll event (not just on settle). This ensures the value always reflects the live `contentOffset` at any given moment, including during an active momentum scroll.
+- `DocumentView`'s eye-icon action closure reads `rawScrollState.currentFractionalY` synchronously to produce the `ScrollAnchor` for the pending rendered transition. This read is guaranteed to be on the main actor and reflects the live scroll position at the instant the mode switch fires, satisfying AC-3.2.
+- Because `RawEditorScrollState` is an `ObservableObject` owned by `DocumentView`, `DocumentView` holds a stable Swift reference to it for the full lifetime of the open document. No UIKit reference escapes out of the `UIViewRepresentable` layer; only the `Double` value is surfaced.
+
+**Public interface (named because it is the reference mechanism between `DocumentView` and the bridge coordinator):**
+```swift
+@MainActor
+final class RawEditorScrollState: ObservableObject {
+    var currentFractionalY: Double = 0
+}
+```
+
+The `@Published` attribute is intentionally omitted on `currentFractionalY` — `DocumentView` reads the value synchronously at mode-switch time; it does not need SwiftUI to re-render on every scroll tick. Writing the value from `scrollViewDidScroll` without triggering a re-render keeps the scroll path free of unnecessary SwiftUI invalidation.
+
+---
+
+### 4. `MarkdownTextViewBridge` — `MarkdownTextViewBridge.swift` (new)
 
 A `UIViewRepresentable` that bridges `MarkdownEditorTextView` into SwiftUI.
 
 **Behavioral constraints:**
 - Text edits flow out through a binding to `document.text`. Every character-level change updates the binding value, which triggers `document.markDirty()` and the autosave debounce in `AutosaveCoordinator` — identical to the pre-migration `TextEditor` behavior.
 - The bridge renders a monospaced body font, matching the pre-migration appearance.
-- Scroll position flows out to `DocumentView` through two mechanisms. A `Binding<ScrollAnchor>` is written whenever the scroll view settles (`scrollViewDidEndDecelerating` and `scrollViewDidEndDragging(_:willDecelerate:)` when not decelerating) — this keeps `DocumentView` loosely in sync as the user scrolls. Separately, the bridge exposes a synchronous read `var currentFractionalY: Double { get }` so that `DocumentView` can read the live position at the exact moment of a mode switch, without depending on the binding's last-settled value. *Addresses adversarial F-001.*
+- Scroll position flows out to `DocumentView` through `RawEditorScrollState` (see §3 above). The bridge's `Coordinator` writes `rawScrollState.currentFractionalY` from `scrollViewDidScroll` on every scroll event, keeping the value current at all times including during momentum scrolls. `DocumentView` reads `rawScrollState.currentFractionalY` synchronously inside the eye-icon action closure before setting `mode = .rendered`. This satisfies AC-3.2 without `DocumentView` holding any UIKit reference. *Addresses adversarial F-001 and F-003.*
 - An incoming `pendingScrollAnchor: ScrollAnchor?` (optional) is consumed exactly once after the `UITextView` is laid out. See §Scroll Anchor Lifecycle.
-- The bridge exposes a synchronous `var currentFractionalY: Double { get }` property that computes `contentOffset.y / max(1, contentSize.height - bounds.height)` against the live `UITextView` state. This is called by `DocumentView` inside the eye-icon action closure before setting `mode = .rendered`, ensuring the anchor reflects the actual scroll position at the instant the mode switch fires — regardless of any in-progress momentum scroll. *Addresses adversarial F-001.*
-- The bridge does not expose its `UITextView` instance directly to SwiftUI callers; all behavioral surface passes through the binding, the anchor, and `currentFractionalY`.
+- The bridge does not expose its `UITextView` instance directly to SwiftUI callers; all behavioral surface passes through the text binding, the pending anchor, and `RawEditorScrollState`.
 
 **Coordinator responsibilities:**
 - Implements `UITextViewDelegate`.
 - On `textViewDidChange`: writes the updated text to the binding; calls `markDirty()` and notifies `AutosaveCoordinator`.
-- On `scrollViewDidEndDecelerating` / `scrollViewDidEndDragging(_:willDecelerate:)` with `!decelerate`: computes the current fractional position from `MarkdownEditorTextView` and writes `scrollAnchorBinding`.
+- On `scrollViewDidScroll`: computes `contentOffset.y / max(1, contentSize.height - bounds.height)` and writes the result to `rawScrollState.currentFractionalY`. This fires on every scroll frame (including during momentum), not just on settle — ensuring the value is always live.
 - Intercepts Return key presses for list continuation (see §List Continuation Logic).
 
 **Swift 6 / concurrency boundary.** `UIViewRepresentable` protocol methods run on `@MainActor`. All `Coordinator` delegate callbacks are called by UIKit on the main thread; the `@MainActor` annotation on the coordinator class satisfies Swift 6's isolation requirement. No data crosses an actor boundary inside this bridge — the bindings are `@MainActor`-bound SwiftUI state.
@@ -83,7 +105,7 @@ Extends seam: Raw editor (was `TextEditor`, becomes `MarkdownTextViewBridge` + `
 
 ---
 
-### 4. `RawEditorView` — `RawEditorView.swift` (replaced)
+### 5. `RawEditorView` — `RawEditorView.swift` (replaced)
 
 `RawEditorView` remains a SwiftUI `View`; its signature from `DocumentView`'s perspective is unchanged. Internally, it replaces the `TextEditor` body with `MarkdownTextViewBridge`.
 
@@ -92,22 +114,23 @@ Extends seam: Raw editor (was `TextEditor`, becomes `MarkdownTextViewBridge` + `
 - An empty file produces an empty, focusable, layout-stable editing surface with no crash and no placeholder.
 - Files at or above the 500 KB threshold open directly in raw mode and are fully editable (existing walking-skeleton guarantee preserved).
 
-`RawEditorView` owns the `pendingScrollAnchor` state slot for this view's instance — it passes it down to `MarkdownTextViewBridge` and clears it after the bridge has consumed it (see §Scroll Anchor Lifecycle).
+`RawEditorView` owns the `pendingScrollAnchor` state slot for this view's instance — it passes it down to `MarkdownTextViewBridge` and clears it after the bridge has consumed it (see §Scroll Anchor Lifecycle). `RawEditorView` also receives the `RawEditorScrollState` instance from `DocumentView` and forwards it to `MarkdownTextViewBridge`, so the coordinator can write live scroll updates without any UIKit reference escaping upward.
 
 Replaces seam: Raw editor (walking-skeleton-1 `TextEditor` body, same SwiftUI surface).
 
 ---
 
-### 5. `DocumentView` scroll-anchor ownership — `DocumentView.swift` (extended)
+### 6. `DocumentView` scroll-anchor ownership — `DocumentView.swift` (extended)
 
-`DocumentView` gains two new state values:
+`DocumentView` gains three new state values:
 
+- `@StateObject private var rawScrollState = RawEditorScrollState()` — the shared scroll-state object whose `currentFractionalY` is continuously updated by the bridge coordinator via `scrollViewDidScroll`. `DocumentView` reads this synchronously inside the eye-icon action closure. *Addresses adversarial F-003.*
 - `@State private var pendingRawAnchor: ScrollAnchor?` — set by `RenderedView`'s tap handler before mode switches to `.raw`. Passed to `RawEditorView`, which forwards it to `MarkdownTextViewBridge` and clears it after one use.
-- `@State private var pendingRenderedAnchor: ScrollAnchor?` — set by `RawEditorView`'s mode-switch path before mode switches to `.rendered`. Passed to `RenderedView`, which applies it on appear and clears it after one use.
+- `@State private var pendingRenderedAnchor: ScrollAnchor?` — set by the eye-icon action closure before mode switches to `.rendered`. Passed to `RenderedView`, which applies it on appear and clears it after one use.
 
 **Behavioral constraints:**
-- `DocumentView` never reads the UITextView's internal state directly; it reads a `ScrollAnchor` value produced by `MarkdownTextViewBridge`.
-- **Raw → rendered mode switch:** When the user taps the eye-icon toolbar button, `DocumentView` calls `MarkdownTextViewBridge.currentFractionalY` synchronously inside the action closure before setting `mode = .rendered`. This read happens at the exact moment the switch fires, regardless of whether a momentum scroll is still in progress. The settled-value binding is not used as the transition anchor. *Addresses adversarial F-001.*
+- `DocumentView` never reads the UITextView's internal state directly; it reads `rawScrollState.currentFractionalY` (a `Double` updated on the main actor by the bridge coordinator) and wraps it in a `ScrollAnchor`.
+- **Raw → rendered mode switch:** When the user taps the eye-icon toolbar button, `DocumentView` reads `rawScrollState.currentFractionalY` synchronously inside the action closure before setting `mode = .rendered`. Because the coordinator writes this value from `scrollViewDidScroll` on every scroll frame, the value always reflects the live `contentOffset` at the exact moment the mode switch fires — regardless of whether a momentum scroll is still in progress. *Addresses adversarial F-001 and F-003.*
 - If a mode switch occurs while both `pendingRawAnchor` and `pendingRenderedAnchor` are non-nil (rapid switching), each transition reads the current-at-the-moment-of-switch anchor and overwrites the pending value. No accumulation of stale anchors is possible.
 - On a programmatic mode switch (no tap, no scroll), `DocumentView` sets the pending anchor to `.top` (`fractionalY: 0`), satisfying AC-2.4 / AC-3.3 defaults.
 
@@ -117,7 +140,7 @@ Extends seam: Mode switcher (adds anchor state; tap-to-edit and eye-icon paths r
 
 ---
 
-### 6. `RenderedView` tap reporting — `RenderedView.swift` (extended)
+### 7. `RenderedView` tap reporting — `RenderedView.swift` (extended)
 
 `RenderedView` gains the ability to report the tap's content-area y-position upward before triggering the mode switch.
 
@@ -133,7 +156,7 @@ Extends seam: Rendered view (adds tap-location reporting and incoming scroll anc
 
 ---
 
-### 7. `ListContinuationHandler` — `ListContinuationHandler.swift` (new)
+### 8. `ListContinuationHandler` — `ListContinuationHandler.swift` (new)
 
 A stateless value type (or a namespace of static functions) that encapsulates the list-continuation decision logic. It is called by `MarkdownTextViewBridge.Coordinator` on Return key press.
 
@@ -184,16 +207,19 @@ Steps 3–4 happen within the same synchronous closure on the main actor, so the
 
 ### How the raw → rendered mode switch reads a live scroll position
 
-When the eye-icon is tapped, the action closure fires synchronously on the main actor. The correct position is the raw editor's live `contentOffset` at that instant — not the cached binding value, which reflects only the last settled scroll position. The lifecycle is:
+When the eye-icon is tapped, the action closure fires synchronously on the main actor. The correct position is the raw editor's live `contentOffset` at that instant — not a cached settled-scroll value. The mechanism that delivers this live value to `DocumentView` is `RawEditorScrollState` (§3). *Addresses adversarial F-001 and F-003.*
 
-1. User taps the eye-icon toolbar button. The action closure fires on `@MainActor`.
-2. `DocumentView` calls `MarkdownTextViewBridge.currentFractionalY` — a synchronous property that computes `contentOffset.y / max(1, contentSize.height - bounds.height)` against the live `UITextView` state at that instant.
-3. `DocumentView` stores `ScrollAnchor(fractionalY: currentFractionalY)` in `pendingRenderedAnchor`.
-4. `DocumentView` sets `mode = .rendered`.
-5. SwiftUI replaces `RawEditorView` with `RenderedView`. `RenderedView` receives `pendingRenderedAnchor` as a prop.
-6. See §Deferred apply below.
+The lifecycle is:
 
-This read is a direct UIKit property access on the main actor — it is not a delegate callback and is not subject to scroll-deceleration timing. A momentum scroll that is still in progress at step 2 does not affect the accuracy of the read; `contentOffset` always reflects the current physical position. *Addresses adversarial F-001.*
+1. **Continuous background write.** While the raw editor is displayed, `MarkdownTextViewBridge.Coordinator` writes `rawScrollState.currentFractionalY` from `scrollViewDidScroll` on every scroll frame — including during momentum scrolls. At any instant, `rawScrollState.currentFractionalY` reflects the true live `contentOffset.y / max(1, contentSize.height - bounds.height)`.
+2. User taps the eye-icon toolbar button. The action closure fires on `@MainActor`.
+3. `DocumentView` reads `rawScrollState.currentFractionalY` synchronously inside the action closure. Because step 1 fires on every scroll frame (not just on settle), this read always reflects the live scroll position at the exact moment the tap fires — satisfying AC-3.2 even when a momentum scroll is still in progress.
+4. `DocumentView` stores `ScrollAnchor(fractionalY: rawScrollState.currentFractionalY)` in `pendingRenderedAnchor`.
+5. `DocumentView` sets `mode = .rendered`.
+6. SwiftUI replaces `RawEditorView` with `RenderedView`. `RenderedView` receives `pendingRenderedAnchor` as a prop.
+7. See §Deferred apply below.
+
+`DocumentView` holds `rawScrollState` as `@StateObject` — a stable Swift reference for the document's lifetime. No UIKit object escapes the `UIViewRepresentable` layer; only the `Double` value is surfaced. This is the concrete reference mechanism specified to close the implementation gap identified in F-003: `DocumentView` cannot hold a reference to a `UIViewRepresentable` value type, but it can hold a reference to the `ObservableObject` that the bridge's coordinator writes into. *Addresses adversarial F-003.*
 
 ### How the scroll anchor survives the SwiftUI view lifecycle (UITextView not yet laid out)
 
@@ -217,15 +243,17 @@ The pattern structure, regardless of mechanism:
 
 Whenever a non-nil pending anchor is present, the incoming view (`RawEditorView` or `RenderedView`) must start with `opacity 0` and become visible only after the anchor has been applied and the first correctly-positioned frame is ready. A cross-fade reveal (short animation to `opacity 1`) is acceptable; an abrupt top-to-target jump is not. This is unconditional — it applies on all hardware, not only when a flash is observed in testing. The build agent must not skip this pattern because the simulator renders faster than a physical device. This directly satisfies AC-2.5 and AC-3.4 as a design-level constraint, not a conditional implementation note.
 
-The deferred-apply pattern applies in `RenderedView` for the raw → rendered direction, using the `UIScrollView` proxy's `setContentOffset` after layout (see §6 below). `ScrollViewReader` is not used for this purpose — it only scrolls to named view IDs and cannot apply an arbitrary fractional content offset.
+The deferred-apply pattern applies in `RenderedView` for the raw → rendered direction, using the `UIScrollView` proxy's `setContentOffset` after layout (see §7 below). `ScrollViewReader` is not used for this purpose — it only scrolls to named view IDs and cannot apply an arbitrary fractional content offset.
 
 ### Exposing scroll position to SwiftUI without violating Swift 6 strict concurrency
 
-The `MarkdownEditorTextView` instance lives on the main actor (UIKit's contract). The `Coordinator` class is `@MainActor`. The scroll-position binding in `MarkdownTextViewBridge` is a SwiftUI `Binding<ScrollAnchor>`, which is also main-actor-bound.
+The `MarkdownEditorTextView` instance lives on the main actor (UIKit's contract). The `Coordinator` class is `@MainActor`. `RawEditorScrollState` is a `@MainActor final class` — it is entirely main-actor-isolated.
 
-The read path: `scrollViewDidEndDecelerating` fires on the main thread → `Coordinator` (main actor) reads `textView.contentOffset` and `textView.contentSize` → computes `fractionalY` as a `Double` → writes `scrollAnchorBinding.wrappedValue = ScrollAnchor(fractionalY:)`.
+The write path: `scrollViewDidScroll` fires on the main thread → `Coordinator` (`@MainActor`) reads `textView.contentOffset` and `textView.contentSize` → computes `fractionalY` as a `Double` → writes `rawScrollState.currentFractionalY`. No `@Published` annotation is placed on `currentFractionalY`; this avoids triggering a SwiftUI re-render on every scroll tick while still keeping the value current for the synchronous read in step 3 of the mode-switch lifecycle.
 
-`ScrollAnchor` is `Sendable` (it is a struct of a `Double` with no reference types). No value crosses an actor boundary — the entire path is main-actor-isolated. This satisfies Swift 6 strict concurrency with no `nonisolated` escape hatches.
+The read path: `DocumentView`'s eye-icon action closure runs on `@MainActor` → reads `rawScrollState.currentFractionalY` (a plain `Double` property on a `@MainActor` object) → wraps it in `ScrollAnchor(fractionalY:)`.
+
+`ScrollAnchor` is `Sendable` (it is a struct of a `Double` with no reference types). No value crosses an actor boundary — the entire path is main-actor-isolated. This satisfies Swift 6 strict concurrency with no `nonisolated` escape hatches. *Addresses adversarial F-003.*
 
 ---
 
@@ -234,7 +262,7 @@ The read path: `scrollViewDidEndDecelerating` fires on the main thread → `Coor
 | Seam (from declaration.md Shape) | Walking-skeleton realization | editor-foundation-4 change |
 |---|---|---|
 | Raw editor | `RawEditorView` with `TextEditor` | **Replaced:** `RawEditorView` now hosts `MarkdownTextViewBridge` + `MarkdownEditorTextView` |
-| Mode switcher | `@State mode` in `DocumentView`; no scroll anchor | **Extended:** `DocumentView` gains `pendingRawAnchor` / `pendingRenderedAnchor`; mode-switch path reads and writes anchors |
+| Mode switcher | `@State mode` in `DocumentView`; no scroll anchor | **Extended:** `DocumentView` gains `pendingRawAnchor` / `pendingRenderedAnchor` and `@StateObject rawScrollState: RawEditorScrollState`; mode-switch path reads `rawScrollState.currentFractionalY` live at switch time |
 | Rendered view | `RenderedView` with `ScrollView` + `Markdown`; tap sets `mode = .raw` | **Extended:** tap handler reports content-y before mode switch; view accepts incoming anchor for apply-on-appear |
 | Document model | `MarkdownDocument` | No change |
 | Document browser entry | `DocumentGroup` | No change |
@@ -273,6 +301,7 @@ Markus_v3/
     MarkdownEditorTextView.swift
     MarkdownTextViewBridge.swift
     ListContinuationHandler.swift
+    RawEditorScrollState.swift
   Models/
     ScrollAnchor.swift
   Views/
@@ -301,7 +330,8 @@ The `Editor/` group is new. All other paths retain their walking-skeleton locati
 - **Opacity-0 reveal is unconditional, not optional.** Whenever a non-nil pending anchor is present, the incoming view starts with `opacity 0` and reveals itself only after the anchor is applied. Do not skip this because the simulator shows no flash — physical devices render differently. This pattern is required by AC-2.5 and AC-3.4 and must not be left as a conditional refinement.
 - **`ScrollAnchor` must be consumed exactly once.** After `MarkdownTextViewBridge` applies a pending anchor, it clears `pendingScrollAnchor` via its binding/callback. If it does not clear it, `updateUIView` will re-apply the scroll on every subsequent SwiftUI update, fighting the user's scroll position.
 - **Rapid mode switching (GF-5).** Each transition computes the anchor fresh from the current scroll state at the moment of the switch. There is no queue of pending anchors; `DocumentView` overwrites `pendingRawAnchor` / `pendingRenderedAnchor` on every transition. Rapid switching cannot accumulate state.
-- **All UI work runs on `@MainActor`.** Swift 6 strict concurrency is on. Every class introduced in this feature that touches UIKit (`MarkdownEditorTextView`, `MarkdownTextViewBridge.Coordinator`) is `@MainActor`. `ScrollAnchor` is `Sendable` and carries no actor annotation.
+- **`RawEditorScrollState` is the reference mechanism for live scroll reads.** `DocumentView` holds it as `@StateObject`; `MarkdownTextViewBridge` receives it as a parameter and passes it to `Coordinator`. `Coordinator` writes `rawScrollState.currentFractionalY` from `scrollViewDidScroll` — not from the settle callbacks. `DocumentView` reads it synchronously inside the eye-icon action closure. Never attempt to expose `currentFractionalY` as a property directly on the `UIViewRepresentable` struct — value types cannot be referenced from outside the SwiftUI render tree. *Addresses adversarial F-003.*
+- **All UI work runs on `@MainActor`.** Swift 6 strict concurrency is on. Every class introduced in this feature that touches UIKit (`MarkdownEditorTextView`, `MarkdownTextViewBridge.Coordinator`, `RawEditorScrollState`) is `@MainActor`. `ScrollAnchor` is `Sendable` and carries no actor annotation.
 - **No regression in walking-skeleton guarantees.** The `RawEditorView` surface contract with `DocumentView` is unchanged; `AutosaveCoordinator` is triggered from `MarkdownTextViewBridge.Coordinator.textViewDidChange` exactly as `TextEditor`'s `onChange` triggered it before.
 
 ---
@@ -311,6 +341,8 @@ The `Editor/` group is new. All other paths retain their walking-skeleton locati
 No requirements changes flagged. The requirements are stable and the architecture satisfies all acceptance criteria without contradiction.
 
 AC-2.5 and AC-3.4 mandate the opacity-0-until-anchor-applied behavior unconditionally — this is a design-level requirement, not an optional implementation refinement. The architecture enforces it as a structural constraint: both `RawEditorView` and `RenderedView` start with `opacity 0` whenever they are presented with a non-nil pending anchor, and reveal themselves (opacity 1, optionally with a short cross-fade) only after the anchor has been applied and cleared. This is not conditional on observing a flash during simulator testing; physical devices render differently and the pattern must be in place from the first implementation. *Addresses prescription feedback §Scroll Anchor Lifecycle (behavioral constraint, not API prescription); also directly satisfies AC-2.5 and AC-3.4.*
+
+The `RawEditorScrollState` mechanism (§3) gives `DocumentView` a stable, main-actor-isolated reference from which to read the live fractional position at mode-switch time. This closes the implementation gap identified in F-003 without any requirement change — AC-3.2 already required the live value; the architecture now specifies unambiguously how that value is delivered. *Addresses adversarial F-003.*
 
 ---
 
