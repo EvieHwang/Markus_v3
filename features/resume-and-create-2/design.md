@@ -236,32 +236,20 @@ Each new component has an obvious extension point for the next Roadmap feature:
 
 ## Requirements implications
 
-Three changes the architecture forces back onto the requirements. None silently absorbed — the user should review and approve before this loop converges.
+Second pass. All three RIs from the first pass are resolved:
 
-### RI-1 — App-shell architecture migration (DocumentGroup → UIDocumentBrowserViewController)
+### RI-1 — App-shell architecture migration (DocumentGroup → UIDocumentBrowserViewController) — **resolved**
 
-The requirements as-written (AC-4.1 names `UIDocumentBrowserViewController.documentBrowser(_:didRequestDocumentCreationWithHandler:)`) imply this migration. The architecture confirms it is the cleanest path. **No requirements text changes needed**, but this is a material change from walking-skeleton-1's design and the user should explicitly approve the migration before the build agent starts.
+User explicitly approved the migration. The requirements text did not require changes; the approval is captured in the project decision log (informal — recorded in the feature folder's chat history and reflected in this design's High-level shape section).
 
-### RI-2 — AC-3.3 edge-swipe-back mechanism
+### RI-2 — AC-3.3 edge-swipe-back mechanism — **resolved in requirements**
 
-AC-3.3 currently says: "The standard screen-edge left-to-right swipe-back gesture (`UINavigationController.interactivePopGestureRecognizer`) also returns the user to the document browser."
+Requirements AC-3.3 has been rewritten to drop the `UINavigationController.interactivePopGestureRecognizer` citation and to specify `UIScreenEdgePanGestureRecognizer` as the implementation mechanism. Design and requirements agree.
 
-`UIDocumentBrowserViewController`'s present-with-transition pattern does not produce a nav-stack push, so `interactivePopGestureRecognizer` does not fire on dismiss. The same UX is preserved via a `UIScreenEdgePanGestureRecognizer` on the document nav controller's view (left edge, action = dismiss).
+### RI-3 — Zero-byte / new-file mode-default override — **resolved in requirements**
 
-**Proposed requirements revision:** rewrite AC-3.3 to drop the specific mechanism citation. Suggested text:
-
-> AC-3.3: A left-to-right screen-edge swipe gesture from the left edge of the document view also returns the user to the document browser, with the same save-first behavior as the back chevron. (Implementation may use `UIScreenEdgePanGestureRecognizer` since the browser-to-document transition is a modal presentation, not a navigation push.)
-
-### RI-3 — Mode-on-new-file specificity for zero-byte documents
-
-AC-4.4 currently says: "It is opened immediately into the document view in **raw mode** with the **keyboard active** and the cursor at the start of the document."
-
-Walking-skeleton-1's EC-2 says files ≥ 500 KB open in raw mode by default; files < 500 KB open in rendered mode. A zero-byte new file therefore would have opened in *rendered* mode under the skeleton's rules — contradicting AC-4.4's "raw mode, keyboard active."
-
-The architecture resolves this by special-casing zero-byte documents: zero-byte → raw + keyboard. **No requirements text change needed** if the user agrees this is the intent; otherwise, AC-4.4 should explicitly say "zero-byte documents (new files) override the default-mode rules from walking-skeleton-1 EC-2."
-
-**Recommendation:** add a one-line clarification to AC-4.4 noting the override, so the build agent reading just the requirements is not confused by the apparent contradiction.
+Requirements AC-4.4 has been expanded with the one-line clarification that zero-byte (new) files always open in raw mode with keyboard up, explicitly overriding walking-skeleton-1 EC-2's mode-from-byte-size rule. Design and requirements agree.
 
 ---
 
-If RI-1 is approved as-is, RI-2 is revised in requirements.md, and RI-3 gets the one-line clarification, this architecture pass is complete and the loop converges.
+**Architecture stable — no requirements changes flagged.** Requirements ↔ architecture loop has converged. Ready for `/t3-adversarial`.
