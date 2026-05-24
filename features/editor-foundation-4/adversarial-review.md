@@ -1,7 +1,7 @@
 # Adversarial Review: editor-foundation-4
 
-Review SHA — requirements.md: 164a6c6ba0c088bdb3933fb54a341d3dbc61b649 design.md: 80315aa4dfbd4e3edcd08054729b48c87939cccc
-Mode: fresh review
+Review SHA — requirements.md: d2d1f8f04a71bc3669378759f8dc36af9968e89f design.md: 29c040eaba5ccf1881a2a50b7fcfcecb59e31a91
+Mode: verification pass
 
 ---
 
@@ -23,7 +23,19 @@ Mode: fresh review
 
 This leaves the behavioral requirement unsatisfied at the design level: a build agent who does not observe the flash on the simulator (common — simulators render faster than devices) will ship code that violates AC-2.5 / AC-3.4 on physical hardware. Apple HIG requires transitions to be smooth and predictable; a top-to-target jump on every mode switch on device is a first-class UX regression.
 **Recommended action (architecture):** The design should prescribe the `.opacity(0)` / reveal-after-apply pattern unconditionally, not conditionally. Concretely: both `RawEditorView` and `RenderedView` should start with `opacity 0` whenever they are presented with a non-nil pending anchor, reveal themselves (opacity 1, optionally with a short cross-fade) only after the anchor has been applied and cleared. This is deterministic and device-independent. The `DispatchQueue.main.async` approach alone is insufficient to guarantee the requirement on all hardware.
-**Status:** addressed — AC-2.5 and AC-3.4 in requirements.md now explicitly mandate the opacity-0-until-anchor-applied behavior unconditionally. Design must prescribe this pattern, not leave it conditional.
+**Status:** addressed — AC-2.5 and AC-3.4 in requirements.md now explicitly mandate the opacity-0-until-anchor-applied behavior unconditionally. Design §Scroll Anchor Lifecycle mandates the opacity-0 reveal as unconditional ("Whenever a non-nil pending anchor is present…"); §Build agent must know reiterates it as non-optional. See design.md §Scroll Anchor Lifecycle (Opacity-0 reveal) and §Requirements implications.
+
+---
+
+### F-003 — No mechanism specified for `DocumentView` to call `currentFractionalY` on the bridge
+**Severity:** MEDIUM
+**Lens:** Integrity / Implementation feasibility
+**Finding:** The F-001 fix introduces `currentFractionalY: Double` as a synchronous property on `MarkdownTextViewBridge`, and §5 states "`DocumentView` calls `MarkdownTextViewBridge.currentFractionalY` … inside the eye-icon action closure." However, `MarkdownTextViewBridge` is a `UIViewRepresentable` struct — a SwiftUI value type. `DocumentView` does not (and cannot) hold a direct Swift reference to the bridge struct. The view hierarchy is `DocumentView` → `RawEditorView` → `MarkdownTextViewBridge`; the bridge is nested two levels deep and exists only within the SwiftUI render tree. The design nowhere specifies how `DocumentView` obtains a callable reference to the property.
+
+Without a specified mechanism, the build agent must guess. The most natural guess — accessing the property directly on the value — won't compile. The real pattern requires one of: (a) `RawEditorView` exposing `currentFractionalY` as part of its own interface and `DocumentView` calling it via a closure/callback registered in `RawEditorView`'s construction; (b) a shared `@StateObject` or `ObservableObject` class instance that both `DocumentView` and the bridge's `Coordinator` hold a reference to, which vends the live fractional value; or (c) a `Binding<Double>` from `DocumentView` into which the bridge writes its current position continuously (identical to the settled-value binding but updated on every `scrollViewDidScroll`). None of these options is prescribed, leaving the central mechanism of the F-001 fix unresolved at the design level.
+
+**Recommended action (architecture):** The design must specify a concrete reference mechanism. The simplest and most idiomatic approach: introduce a lightweight `RawEditorScrollState` class (`@MainActor final class RawEditorScrollState: ObservableObject`) with a `var currentFractionalY: Double` property. `DocumentView` creates it as `@StateObject var rawScrollState = RawEditorScrollState()` and passes it to `RawEditorView`, which passes it to `MarkdownTextViewBridge`. The bridge's `Coordinator` writes `rawScrollState.currentFractionalY` from `scrollViewDidScroll` (not just on settle). `DocumentView`'s eye-icon action reads `rawScrollState.currentFractionalY` synchronously. This is a pure SwiftUI/Swift-idiomatic pattern, is `@MainActor`-safe, and does not require `DocumentView` to hold any UIKit reference. Alternatively, `RawEditorView` can expose an `onModeSwitch: () -> Double` closure that `DocumentView` stores and calls, with the bridge registering the closure in `makeUIView`. Either approach must be named explicitly in the design so the build agent has an unambiguous implementation path.
+**Status:** open
 
 ---
 
