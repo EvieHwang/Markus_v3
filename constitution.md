@@ -71,6 +71,7 @@ Format:
 | ID | Description | Wave | Status | Notes |
 |----|-------------|------|--------|-------|
 
-Valid status values: pending, in-progress, complete, failed
-Notes column captures the commit SHA on completion and the failure reason on failure.
-Updated by: t3-generate-dag (initializes), t3-next-step (updates)
+Valid status values: pending, in-progress, complete, failed, deviation
+Notes column captures: the commit SHA on completion; the failure reason on failure; for deviation — the design section contradicted and a pointer to build-deviations.md.
+`deviation` means the task completed and its behavioral requirement is satisfied, but the implementation differed from design.md in a way that should flow back to the req↔arch loop. Treat it as `complete` for DAG-progress purposes; treat the deviation note as a candidate adversarial finding.
+Updated by: /dag (initializes), /next (updates)
