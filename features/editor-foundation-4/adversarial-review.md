@@ -23,7 +23,7 @@ Mode: fresh review
 
 This leaves the behavioral requirement unsatisfied at the design level: a build agent who does not observe the flash on the simulator (common — simulators render faster than devices) will ship code that violates AC-2.5 / AC-3.4 on physical hardware. Apple HIG requires transitions to be smooth and predictable; a top-to-target jump on every mode switch on device is a first-class UX regression.
 **Recommended action (architecture):** The design should prescribe the `.opacity(0)` / reveal-after-apply pattern unconditionally, not conditionally. Concretely: both `RawEditorView` and `RenderedView` should start with `opacity 0` whenever they are presented with a non-nil pending anchor, reveal themselves (opacity 1, optionally with a short cross-fade) only after the anchor has been applied and cleared. This is deterministic and device-independent. The `DispatchQueue.main.async` approach alone is insufficient to guarantee the requirement on all hardware.
-**Status:** open
+**Status:** addressed — AC-2.5 and AC-3.4 in requirements.md now explicitly mandate the opacity-0-until-anchor-applied behavior unconditionally. Design must prescribe this pattern, not leave it conditional.
 
 ---
 

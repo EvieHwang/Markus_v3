@@ -37,7 +37,7 @@ As a user reading a long rendered document, when I tap to enter edit mode, the r
 - AC-2.2: The fractional position used is the tap point's y-offset within the rendered scroll view's total content height at the moment of the tap — not the position within the viewport.
 - AC-2.3: If the computed fractional position maps to a location within the last viewport-height of the raw content (i.e., not enough content below to fill the screen), the raw editor scrolls as far as possible without over-scrolling past the end.
 - AC-2.4: If the tap point cannot be determined (e.g., mode switch triggered programmatically, not by a direct tap), the raw editor opens at the top (fractional position 0).
-- AC-2.5: The scroll anchor is applied before the raw editor is visible to the user — there is no visible jump from the top to the target position after the view appears.
+- AC-2.5: The scroll anchor is applied before the raw editor is visible to the user — there is no visible jump from the top to the target position after the view appears. Specifically: when a non-zero fractional anchor is pending, the raw editor view must start fully transparent (opacity 0) and become visible only after the anchor has been applied and the view is ready to display at the correct position. A cross-fade reveal is acceptable; an abrupt jump from the top is not. *Addresses adversarial F-002.*
 
 **Edge cases**
 
@@ -57,7 +57,7 @@ As a user who has scrolled partway through a long document in the raw editor, wh
 - AC-3.1: When the user switches from raw mode to rendered mode (via the eye-icon toolbar button), the rendered view's initial scroll position corresponds to the fractional scroll position of the raw editor at the moment of the switch. Specifically: if the raw editor was scrolled to 60% of its content height, the rendered view opens scrolled to approximately 60% of its own content height.
 - AC-3.2: The fractional position used is the raw editor's scroll content offset y divided by its total content height at the moment the mode switch is triggered.
 - AC-3.3: If the computed fractional position maps to a location within the last viewport-height of the rendered content, the rendered view scrolls as far as possible without over-scrolling past the end.
-- AC-3.4: The scroll anchor is applied before the rendered view is visible to the user — there is no visible jump from the top to the target position after the view appears.
+- AC-3.4: The scroll anchor is applied before the rendered view is visible to the user — there is no visible jump from the top to the target position after the view appears. Specifically: when a non-zero fractional anchor is pending, the rendered view must start fully transparent (opacity 0) and become visible only after the anchor has been applied and the view is ready to display at the correct position. A cross-fade reveal is acceptable; an abrupt jump from the top is not. *Addresses adversarial F-002.*
 - AC-3.5: A save is triggered on transition to rendered mode (per walking-skeleton AC-5.2); the scroll anchor is independent of the save and is not blocked by it.
 
 **Edge cases**
@@ -193,3 +193,5 @@ As a user writing paragraphs or headings in the raw editor, pressing Return alwa
 ---
 
 Requirements stable — no architectural feedback to incorporate
+
+*Adversarial round 1 incorporated: AC-2.5 and AC-3.4 strengthened to mandate opacity-0-until-anchor-applied behavior unconditionally (F-002). F-001 is a pure architecture finding; no requirements change was needed.*
