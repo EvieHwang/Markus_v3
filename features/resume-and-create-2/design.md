@@ -2,85 +2,101 @@
 
 *Builds on `walking-skeleton-1` design. Most existing components (DocumentView, RenderedView, RawEditorView, AutosaveCoordinator, DocumentError, ActiveAlert, ToastModifier, DocumentLoadingView) carry over with little or no change. This document focuses on what is new or refactored.*
 
+*Third pass — addresses adversarial findings F-002, F-003, F-004, F-005, F-006. F-001 (zero-byte mode-default ambiguity) is requirements-side and will be addressed in the next `/t3-requirements` pass.*
+
 ## Ground-truth check (resolved before drafting)
 
 - **Precedent repo:** none. No external precedent named in CLAUDE.md.
 - **CLAUDE.md sections leaned on:** Run/test/deps (iOS via Xcode + SwiftPM), Deployment target (manual Xcode build, no CI), Constitution → Testing (Swift Testing + XCUITest), Constitution → Standards (Apple HIG). User confirmed current.
 - **Xcode/SDK / deployment target / concurrency:** inherited from walking-skeleton-1 design — Xcode 26, iOS 18 minimum, Swift 6 strict concurrency, `@MainActor` by default.
-- **Pattern reuse from constitution.md:** none yet from constitution (it still registers only Python and React patterns). This feature is the second iOS surface in the repo and inherits the conventions walking-skeleton-1 set without citing them as registered patterns.
-- **In-repo precedent:** walking-skeleton-1 is the only prior iOS feature. Its components and project layout are the baseline.
+- **Pattern reuse from constitution.md:** none yet from constitution. This feature is the second iOS surface in the repo and inherits walking-skeleton-1's conventions without citing them as registered patterns.
+- **In-repo precedent:** walking-skeleton-1 is the only prior iOS feature.
 
-## Architectural shift — surfaced for explicit assent
+## Architectural shift — approved in prior loop
 
-Walking-skeleton-1 implemented the document-based app via SwiftUI's `DocumentGroup` + `ReferenceFileDocument`. The requirements for this feature explicitly name the UIKit API surface (`UIDocumentBrowserViewController.documentBrowser(_:didRequestDocumentCreationWithHandler:)`, `NSUserActivity` for state restoration). Two of the named behaviors are not cleanly reachable from `DocumentGroup`:
+The app shell migrates from SwiftUI `DocumentGroup` + `ReferenceFileDocument` to UIKit `UIDocumentBrowserViewController` + `UIDocument`. SwiftUI views below the app shell (`DocumentView` and its children) survive nearly verbatim, hosted in a `UIHostingController` that the browser presents.
 
-1. **Create with our own filename in our own directory.** `DocumentGroup`'s built-in Create button hands control to the system's save dialog. There is no documented hook to intercept it with our own "create `Untitled.md` in the last-opened directory" handler.
-2. **Resume directly into a document on launch.** `DocumentGroup` always presents the browser first; there is no documented "skip the browser, open this URL" entry point for cold launch.
-
-The architecture therefore **migrates the app shell from `DocumentGroup` to `UIDocumentBrowserViewController`** (wrapped under a thin SwiftUI App + `UIApplicationDelegateAdaptor`), and **migrates `MarkdownDocument` from `ReferenceFileDocument` to `UIDocument`**. The SwiftUI views below the app shell (`DocumentView` and its children) survive nearly verbatim — they are hosted in a `UIHostingController` that the browser presents.
-
-This is the single biggest change in the feature. It is flagged in the Requirements implications section at the end. The build agent must not start until the user has approved this shift (or directed a different one).
-
-Justification:
-- It is what the requirements (as-written) imply.
-- It is what Apple's own document-based apps (Files, Pages, Numbers) do.
-- It simplifies walking-skeleton-1's `SaveStatusObserver` (the "global notification + single-document assumption" workaround in walking-skeleton-1 design #11 is no longer necessary — we hold a `UIDocument` reference directly).
-- It sets up Roadmap #3 (conflict + lifecycle) with first-class access to `UIDocument` state notifications.
-
-Trade-offs:
-- Larger surface area added than a thin feature would suggest. Most of the size is one-time platform plumbing, not feature-specific code.
-- Walking-skeleton-1 tests for `ReferenceFileDocument` mechanics must be rewritten against `UIDocument`.
+The user explicitly approved this migration as the right long-term foundation. The rationale and trade-offs are recorded in the conversation history and need not be re-litigated here.
 
 ## High-level shape
 
-- **Scene root** is a `UIDocumentBrowserViewController` subclass (`MarkusDocumentBrowserViewController`).
-- **Opening a document** uses the system pattern: `presentDocument(at:)` with the system's zoom transition. The presented controller is a `UINavigationController` whose root is a `UIHostingController` hosting the existing SwiftUI `DocumentView`.
-- **The nav controller's back button** is the standard left-bar chevron + previous-screen label ("Documents"). Tapping it dismisses the presented nav controller, returning to the browser. Edge-swipe-back is added explicitly via `UIScreenEdgePanGestureRecognizer` on the nav controller's view, because `UIDocumentBrowserViewController`'s present-with-transition pattern does not give us `interactivePopGestureRecognizer` for free (see Requirements implications).
-- **Resume** is driven by `LastDocumentStore`, which persists an `NSUserActivity` carrying a security-scoped bookmark to the most recently opened file. On scene activation, the store is consulted; on resolution success, the browser is told to immediately `presentDocument(at:)` the resolved URL.
+- **App entry** is a SwiftUI `App` with a `WindowGroup`. The window group hosts a `BrowserHostView` (a `UIViewControllerRepresentable`) that wraps a `MarkusDocumentBrowserViewController` instance. This is the "SwiftUI App owns the window; UIKit provides the view controller" hybrid pattern (canonical pattern 2 in iOS terminology — see component #1).
+- **No separate `SceneDelegate` or `AppDelegate`.** SwiftUI's lifecycle modifiers (`.onChange(of: scenePhase)`, `.onContinueUserActivity`) cover the hooks we need. The migration does not pay for unnecessary UIKit lifecycle plumbing.
+- **Opening a document** uses the system pattern: `presentDocument(at:)` with the system's zoom transition. The presented controller is a `UINavigationController` whose stack is `[placeholderVC, documentVC]`. The placeholder is never visible; it exists so the native `backBarButtonItem` renders with the previous-page title ("Documents").
+- **Back navigation** uses the system's `backBarButtonItem` natively (no custom barbutton). Edge-swipe-back uses the system's `UINavigationController.interactivePopGestureRecognizer`, which is active because the nav stack has more than one VC.
+- **Pop-triggered dismiss.** When the user pops back toward the placeholder (via chevron tap or edge swipe), the nav controller's delegate intercepts `willShow placeholderVC` and triggers `dismiss(animated:)` on the nav controller, using the browser's `transitionController(forDocumentAt:)` for the zoom-back animation. The placeholder is never visible because the dismiss begins during the pop animation.
+- **Resume** is driven by `LastDocumentStore`, which persists an `NSUserActivity` carrying a security-scoped bookmark to the most recently opened file. On the browser representable's first appearance, the coordinator consults the store; on resolution success, it calls `presentDocument(at:)` on the browser.
 - **Create** is driven by `CreateNewDocumentFlow`, invoked from the browser's `didRequestDocumentCreationWithHandler` delegate method. The flow consults `LastDocumentStore` for the target directory, falls back to local Documents if needed, asks `UntitledNameResolver` for a free filename, writes a zero-byte file, registers it with `UntouchedFileTracker`, and returns the URL to the completion handler.
-- **Untouched-file cleanup** runs on document close. `UntouchedFileTracker` deletes any newly-created file that never received a keystroke.
+- **Untouched-file cleanup** runs on document close (before stop-accessing security scope) and on scene-phase `.background` (best-effort sweep).
+- **Single-scene-only** enforced via `Info.plist` (see component #9).
 
 ## Components
 
-### 1. App entry — `Markus_v3App.swift` + `AppDelegate.swift` + `SceneDelegate.swift` *(rewritten)*
+### 1. App entry — `Markus_v3App.swift` + `ContentView.swift` *(rewritten, pattern 2)*
 
-- `Markus_v3App` is a SwiftUI `App` with `@UIApplicationDelegateAdaptor(AppDelegate.self)`. Its body returns a `WindowGroup { EmptyView() }` — the real UI is driven by the UIKit scene delegate. This pattern keeps `@main` SwiftUI-flavored while letting UIKit own scene/window construction (required by `UIDocumentBrowserViewController` being the scene root).
-- `AppDelegate` configures the scene-session role to use `SceneDelegate`.
-- `SceneDelegate` in `scene(_:willConnectTo:options:)`:
-  - Constructs the `UIWindow`, sets `MarkusDocumentBrowserViewController` as the root.
-  - Calls `LastDocumentStore.shared.resolveLastDocumentURL()`. If non-nil, immediately calls `browser.presentDocument(at: url)` after `makeKeyAndVisible()` — the user sees the browser zoom directly into the document, with no perceptible browser flash (the system handles the transition).
-  - If `NSUserActivity` is present in `connectionOptions.userActivities`, that takes precedence over the bookmark — the activity carries the URL directly.
-- On `sceneDidEnterBackground`, calls `UntouchedFileTracker.shared.cleanupIfUntouched(...)` for any tracked URL.
+*Addresses adversarial F-003.*
 
-### 2. `MarkusDocumentBrowserViewController.swift` *(new)*
+- `@main struct Markus_v3App: App` with `var body: some Scene { WindowGroup { ContentView() } }`.
+- No `@UIApplicationDelegateAdaptor`, no `SceneDelegate`, no `AppDelegate`. The SwiftUI lifecycle is sufficient.
+- `ContentView` is a thin SwiftUI view containing one child: `BrowserHostView()` (the `UIViewControllerRepresentable` defined in component #2). `ContentView` also installs three modifiers:
+  - `.onChange(of: scenePhase)`: on transition to `.background`, calls `UntouchedFileTracker.shared.cleanupAllUntouched()` for the best-effort sweep (AC-6.5 force-quit path).
+  - `.onContinueUserActivity("com.evehwang.Markus.openDocument") { activity in BrowserHostView.continue(activity) }`: routes a continued `NSUserActivity` (delivered after scene tear-down or on Handoff-like restoration if Apple delivers one) to the browser. The static `continue(_:)` is a coordinator hook that calls `presentDocument(at:)` for the URL in the activity.
+  - `.handlesExternalEvents(preferring: [], allowing: [])`: explicitly empty — we don't accept external open events outside the document browser flow in this feature.
+- **Resume on cold launch** is *not* handled here. It happens in `BrowserHostView.Coordinator.viewControllerDidAppear` (component #2) the first time the browser becomes visible — that's the moment `presentDocument(at:)` is safe to call.
+- The `WindowGroup` produces exactly one scene because `Info.plist` sets `UIApplicationSupportsMultipleScenes = NO` (component #9; addresses adversarial F-002).
 
-- Subclass of `UIDocumentBrowserViewController`. Sets itself as its own delegate.
-- Configured for the markdown UTTypes (`UTType.markdown`, `net.daringfireball.markdown`) — same as walking-skeleton-1's UTType registration.
+### 2. `BrowserHostView.swift` + `MarkusDocumentBrowserViewController.swift` *(new, with placeholder-VC dismiss pattern)*
+
+*Addresses adversarial F-003 (representable bridge) and F-005 (native back chevron).*
+
+**`BrowserHostView`** — `struct BrowserHostView: UIViewControllerRepresentable`.
+
+- `makeUIViewController(context:)` constructs a `MarkusDocumentBrowserViewController`, wires its delegate (the browser is its own delegate), and stores a reference on `context.coordinator`.
+- `makeCoordinator()` returns a `Coordinator` instance. The coordinator holds the browser reference, owns the `firstAppearance` flag, and serves as the static target for `onContinueUserActivity`.
+- `updateUIViewController(_:context:)` is a no-op; state changes are driven by UIKit delegate methods, not by SwiftUI binding flow.
+- `Coordinator` exposes a static `continue(_:NSUserActivity)` method routed from `ContentView.onContinueUserActivity`. The implementation extracts the URL from the activity's `userInfo` and calls `currentBrowser?.presentDocument(at: url)`.
+
+**`MarkusDocumentBrowserViewController`** — subclass of `UIDocumentBrowserViewController`.
+
+- Configured for the markdown UTTypes (`UTType.markdown`, `net.daringfireball.markdown`) — same as walking-skeleton-1.
 - `allowsDocumentCreation = true`. `allowsPickingMultipleItems = false`.
-- Delegate methods:
-  - **`documentBrowser(_:didRequestDocumentCreationWithHandler:)`** *(AC-4.1)*: hands off to `CreateNewDocumentFlow.makeNewDocument(completion:)`. The flow returns `(url: URL, importMode: .move)` or an error; the handler is called with the result.
-  - **`documentBrowser(_:didPickDocumentsAt:)`**: calls `presentDocument(at: urls.first!)`.
-  - **`documentBrowser(_:didImportDocumentAt:toDestinationURL:)`**: calls `presentDocument(at: destinationURL)`.
-  - **`documentBrowser(_:failedToImportDocumentAt:error:)`**: shows a non-fatal alert reusing the `DocumentError` surface (component reused from walking-skeleton-1 #8).
-- **`presentDocument(at url: URL)`**:
-  - Creates a `MarkdownDocument(fileURL: url)` (the new `UIDocument` subclass — see component #5).
-  - Wraps a SwiftUI `DocumentView(document:)` in a `UIHostingController`.
-  - Wraps the hosting controller in a `UINavigationController`, sets the hosting controller's `navigationItem.leftBarButtonItem` to a custom chevron + "Documents" item whose action dismisses the modal.
-  - Adds a `UIScreenEdgePanGestureRecognizer` to the nav controller's view with `edges = .left`; on `.recognized`, dismisses the modal (AC-3.3 implementation note).
-  - Uses `transitionController(forDocumentAt: url)` for the zoom presentation animation.
-  - On document open success, calls `LastDocumentStore.shared.record(url:)`.
+- Sets itself as `delegate` and as the nav-controller delegate on any presented nav controller (see step 6 below).
+- **`viewDidAppear(_:)` override** *(resume orchestration, replaces walking-skeleton-1's SceneDelegate-based orchestration)*:
+  - Calls `super.viewDidAppear(animated)`.
+  - On the *first* appearance (tracked by an instance flag), consults `LastDocumentStore.shared.resolveLastDocumentURL()`. If non-nil, calls `presentDocument(at: url)` immediately. The user sees the browser zoom directly into the document — the browser is visible for a single frame at most.
+  - If the resolve returns nil, leaves the browser visible (first-ever-launch + unrecoverable-resume both fall here per AC-2.1 / AC-2.2).
+- **Delegate methods:**
+  - `documentBrowser(_:didRequestDocumentCreationWithHandler:)` → calls `CreateNewDocumentFlow.makeNewDocument(completion:)`. On success, returns `(url, .move)` to the handler; on failure, returns `(nil, .none)` and shows a non-fatal alert reusing the `DocumentError` surface (EC-12).
+  - `documentBrowser(_:didPickDocumentsAt:)` → `presentDocument(at: urls.first!)`.
+  - `documentBrowser(_:didImportDocumentAt:toDestinationURL:)` → `presentDocument(at: destinationURL)`.
+  - `documentBrowser(_:failedToImportDocumentAt:error:)` → non-fatal alert via `DocumentError`.
+- **`presentDocument(at url: URL)` — placeholder-VC + native-chevron pattern:**
+  1. Construct `document = MarkdownDocument(fileURL: url)`.
+  2. Call `document.open { success in … }` (component #5 details the failure paths). On `success == false`, do **not** present; surface the appropriate `DocumentError` alert on `self`. On success, continue to step 3.
+  3. Construct `placeholderVC: UIViewController`. Set `placeholderVC.title = "Documents"` and `placeholderVC.view.backgroundColor = .systemBackground`. It is never visible; it exists so the native `backBarButtonItem` on `documentVC` renders as "‹ Documents."
+  4. Construct `documentVC: UIHostingController(rootView: DocumentView(document: document))`. Set `documentVC.navigationItem.title = url.deletingPathExtension().lastPathComponent` (filename without extension — preserves walking-skeleton-1 AC-2.3).
+  5. Construct `navController = UINavigationController(rootViewController: placeholderVC)`. Push `documentVC` with `animated: false`. The stack is now `[placeholderVC, documentVC]`. The native `backBarButtonItem` on `documentVC` is auto-rendered as the chevron + "Documents" label — visually identical to Apple's first-party document apps.
+  6. Set `navController.delegate = self` so the browser intercepts navigation events. Implement `navigationController(_:willShow:animated:)` — when `viewControllerToShow === placeholderVC` (a pop is in progress), set `navController.transitioningDelegate = self.transitionController(forDocumentAt: url)` (reverse zoom) and call `navController.dismiss(animated: true)` from inside the `willShow` callback. The pop and dismiss animations overlap; the placeholder is never visible.
+  7. Set `navController.modalPresentationStyle = .fullScreen`.
+  8. Set `navController.transitioningDelegate = self.transitionController(forDocumentAt: url)` for the forward zoom presentation.
+  9. Call `self.present(navController, animated: true)`.
+  10. After successful presentation, the document's first-keystroke handler (component #5) will call `LastDocumentStore.shared.record(url:)`. Resume bookmark recording is deferred until first touch for newly created files (per AC-6.5); for files opened from the browser or resume path, recording happens immediately after `present` returns.
+- **Edge-swipe-back falls out for free.** Because `documentVC` is the top of a multi-VC nav stack, `interactivePopGestureRecognizer` is automatically active. A left-edge pan triggers a pop; the `willShow placeholderVC` handler in step 6 fires; modal dismiss-with-zoom-back follows. **No custom `UIScreenEdgePanGestureRecognizer` is needed** — this is a deliberate consequence of pattern (b) and surfaces RI-4 in the Requirements implications section.
 
 ### 3. `LastDocumentStore.swift` *(new)*
 
-`@MainActor final class LastDocumentStore` — singleton-style (`static let shared`), but injectable for tests.
+*Addresses adversarial F-006 in the `record(url:)` failure path.*
+
+`@MainActor final class LastDocumentStore` — singleton (`static let shared`), injectable for tests.
 
 - **State.** A single security-scoped bookmark `Data?` persisted to `UserDefaults` under key `LastDocumentStore.bookmarkKey`. The bookmark is the durable handle; `NSUserActivity` is its carrier across scene-restoration events but `UserDefaults` is the cold-start source of truth.
-- **`record(url: URL)`** *(AC-1.5, AC-3.5)*: creates a bookmark with `URL.bookmarkData(options: .minimalBookmark, …)`, writes it to UserDefaults, and attaches the bookmark data to the scene's `NSUserActivity` (`activityType = "com.evehwang.Markus.openDocument"`). The activity is **not** marked `isEligibleForHandoff` (out of scope).
-- **`resolveLastDocumentURL() -> URL?`** *(AC-1.1, AC-1.4, EC-1 through EC-7)*: reads bookmark data from UserDefaults. Calls `URL(resolvingBookmarkData:options:relativeTo:bookmarkDataIsStale:)`. If `isStale` is true, attempts to refresh (recreate bookmark from resolved URL and re-persist). If resolution throws, returns nil. **Critically**, calls `startAccessingSecurityScopedResource()` on the resolved URL before returning it; the caller is responsible for the matching `stopAccessing…` when the document closes.
-- **`resolveLastDocumentDirectoryURL() -> URL?`** *(AC-4.2)*: same as above but returns the *parent* of the resolved URL. The directory is also security-scoped (the bookmark scope covers the parent because iOS document bookmarks scope to the file system tree, but if the parent is not writable the caller falls through to local Documents per AC-5.1).
-- **`clear()`** *(AC-2.4)*: removes the persisted bookmark and the scene's userActivity. Called by SceneDelegate when bookmark resolution fails.
+- **`record(url: URL)`** *(AC-1.5, AC-3.5; addresses adversarial F-006)*: creates a bookmark via `URL.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)`. On success, writes the data to UserDefaults and attaches it to the scene's `NSUserActivity` (`activityType = "com.evehwang.Markus.openDocument"`). Activity is **not** marked `isEligibleForHandoff` (out of scope).
+  - **Failure handling.** `URL.bookmarkData(...)` can throw — share-extension inbox URLs, transient temp paths, files inaccessible due to security-scope race, files on volumes about to unmount. On throw: log via `os_log` at debug level (no user-visible UI per declaration's silent-failure stance), preserve any previously persisted bookmark (do not clear), and return without persisting the new URL. The visible consequence to the user is that the next cold launch falls through to the browser (AC-2.2) — same as a first-ever launch or a stale bookmark. The declaration's "no UI for the stale-bookmark case" rule covers this implicitly.
+- **`resolveLastDocumentURL() -> URL?`** *(AC-1.1, AC-1.4, EC-1 through EC-7)*: reads bookmark data from UserDefaults. Calls `URL(resolvingBookmarkData:options:relativeTo:bookmarkDataIsStale:)`. If `isStale` is true, recreates the bookmark from the resolved URL and re-persists. If resolution throws, returns nil. **Critically**, calls `startAccessingSecurityScopedResource()` on the resolved URL before returning it; the caller is responsible for the matching `stopAccessing…` when the document closes (component #5 lifecycle).
+- **`resolveLastDocumentDirectoryURL() -> URL?`** *(AC-4.2)*: same as above but returns the parent of the resolved URL. The directory inherits security scope from the file bookmark; if the parent is not writable the caller falls through to local Documents per AC-5.1.
+- **`clear()`** *(AC-2.4)*: removes the persisted bookmark and resets the scene's userActivity. Called when bookmark resolution fails (from `BrowserHostView.Coordinator.viewControllerDidAppear` and from `MarkdownDocument` open-failure paths in component #5).
 
-**Concurrency.** All public methods are `@MainActor`. Bookmark resolution can be slow (sync provider round-trip); a future revision may move resolution to a background task with a main-actor callback, but the synchronous-on-main-actor approach is acceptable for this feature because resume blocks scene presentation anyway.
+**Concurrency.** All public methods are `@MainActor`. Bookmark resolution can be slow under sync-provider conditions; acceptable for this feature because resume blocks presentation by design.
 
 ### 4. `CreateNewDocumentFlow.swift` + `UntitledNameResolver.swift` *(new)*
 
@@ -92,31 +108,44 @@ Trade-offs:
   3. If nil or not writable, use `FileManager.default.url(for: .documentDirectory, in: .userDomainMask, …)` — the "On My iPhone / Markus" folder (AC-5.1 / EC-13).
   4. Acquire security scope on the target directory if it came from the bookmark.
   5. Ask `UntitledNameResolver.nextUntitledURL(in: directory)` for the target URL.
-  6. Create a zero-byte file via `FileManager.default.createFile(atPath: ...)` (AC-4.4).
+  6. Create a zero-byte file via `FileManager.default.createFile(atPath: ..., contents: Data(), attributes: nil)` (AC-4.4).
   7. Register the URL with `UntouchedFileTracker.shared.registerUntouched(url:)`.
   8. Release security scope on the directory.
   9. Call `completion(.success(url))`.
-- **Error path** (EC-12): if creation fails at step 6, call `completion(.failure(...))`. The browser delegate translates this to a non-fatal alert reusing `DocumentError.saveFailed(...)`-style messaging — text reads "Couldn't create new file." No clipboard recovery (no in-memory content to rescue).
+- **Error path** (EC-12): if creation fails at step 6, call `completion(.failure(error))`. The browser delegate translates this to a non-fatal alert reusing `DocumentError.saveFailed(...)`-style messaging — text reads "Couldn't create new file." No clipboard recovery (no in-memory content to rescue).
 
-**`UntitledNameResolver`** — pure `struct`, no state, no side effects.
+**`UntitledNameResolver`** — pure `struct`, no state.
 
-- **`nextUntitledURL(in directory: URL) -> URL`** *(AC-4.3, EC-9, EC-11)*:
+- **`nextUntitledURL(in directory: URL, fileManager: FileManager = .default) -> URL`** *(AC-4.3, EC-9, EC-11)*:
   - Loop N from 1 upward. For N=1, candidate filename is `Untitled.md`; for N≥2, `Untitled \(N).md`.
-  - Probe with `FileManager.default.fileExists(atPath: candidate.path)` — `fileExists` returns true for both files and directories, so EC-11 (folder collision) is handled automatically.
+  - Probe with `fileManager.fileExists(atPath: candidate.path)` — returns true for both files and directories, so EC-11 (folder collision) is handled automatically.
   - Return the first non-existing candidate. **Lowest unused integer wins, gaps are filled** (EC-9).
-- **Testability.** Takes an injected `FileManager` for unit tests; defaults to `.default`.
-- **No upper bound enforced** (EC-10). The OS will refuse creation long before this matters.
+- **Testability.** Takes injected `FileManager`; defaults to `.default`.
+- **No upper bound enforced** (EC-10).
 
 ### 5. `MarkdownDocument.swift` *(refactored — `ReferenceFileDocument` → `UIDocument`)*
 
 - `final class MarkdownDocument: UIDocument`.
 - **`override func contents(forType:) throws -> Any`**: returns `text.data(using: .utf8) ?? Data()`.
 - **`override func load(fromContents contents: Any, ofType:) throws`**: decodes UTF-8; throws `DocumentError.invalidEncoding` on failure (preserves walking-skeleton-1 EC-4 behavior).
-- **Holds `@Published var text: String`** for SwiftUI binding (must be on `@MainActor`; `UIDocument` already calls `load`/`contents` on the main thread for the document-based app pattern).
-- **Holds `let initialByteSize: Int`** — set during `load(fromContents:ofType:)` from `(contents as? Data)?.count ?? 0`. Preserves walking-skeleton-1's EC-2 large-file behavior.
-- **`override func updateChangeCount(_:)`** is called from the text-change handler to mark dirty (replaces walking-skeleton-1's `markDirty()` no-op undo trick — `UIDocument` exposes change-count directly).
-- **First-keystroke hook** *(AC-6.2 / AC-6.3)*: the text-change handler also calls `UntouchedFileTracker.shared.markTouched(url: fileURL)` on the first mutation. Subsequent mutations skip this call (the tracker is idempotent on `markTouched`).
-- **Close lifecycle**: when the document closes (via `UIDocument.close(completionHandler:)` from the dismiss path), `SceneDelegate` (or the dismissing controller) calls `UntouchedFileTracker.shared.cleanupIfUntouched(url:)` after close completes.
+- **`@Published var text: String`** for SwiftUI binding.
+- **`let initialByteSize: Int`** — set during `load(fromContents:ofType:)` from `(contents as? Data)?.count ?? 0`. Preserves walking-skeleton-1 EC-2 large-file behavior.
+- **Change tracking via `updateChangeCount(.done)`** — replaces walking-skeleton-1's `markDirty()` no-op undo trick.
+- **First-keystroke hook** *(AC-6.2 / AC-6.3 / AC-6.5)*: the text-change handler calls `UntouchedFileTracker.shared.markTouched(url: fileURL)` on the first mutation. For newly-created documents (those that were registered via `CreateNewDocumentFlow`), the first-keystroke handler also calls `LastDocumentStore.shared.record(url: fileURL)` — this is the deferred bookmark-record per AC-6.5 (untouched-and-deleted files do not become the resume target). Subsequent mutations skip both calls.
+
+**UIDocument open/close lifecycle** *(addresses adversarial F-004)*. `UIDocument`'s open and close are asynchronous; they must be sequenced explicitly with the browser's presentDocument and dismiss paths:
+
+- **Open is called before the modal is presented.** In `MarkusDocumentBrowserViewController.presentDocument(at:)` step 2, the flow calls `document.open { success in … }` and only proceeds to steps 3–9 inside the success branch. On `success == false`, the flow consults `document.documentState` to discriminate the error:
+  - `.savingError` with a decode failure → `.invalidEncoding` (walking-skeleton-1 EC-4 path).
+  - `.editingDisabled` combined with `.savingError` after a download attempt → `.iCloudDownloadFailed` (walking-skeleton-1 EC-13 failure path).
+  - File not found (open returns success=false with no state flag, or `NSFileNoSuchFileError`) → `.fileMissing`. This is the open-time race: bookmark resolved successfully, but the file was deleted between resolve and open.
+  In all open-failure cases: show the corresponding `DocumentError` alert on the browser (`self`) — do not present the modal. The browser remains visible. For the `.fileMissing` and `.iCloudDownloadFailed` cases triggered by a resume path, the alert's dismiss handler also calls `LastDocumentStore.shared.clear()` so the next launch does not re-attempt the stale bookmark.
+- **A brief loading state** is acceptable during open. For typical local files, open is instantaneous and no UI is needed. For iCloud download-pending files, a `ProgressView` is shown on the browser (or via a transient `DocumentLoadingView` overlay reused from walking-skeleton-1 #12).
+- **Close is called before the modal dismisses.** The nav-controller delegate's `willShow placeholderVC` callback (component #2 step 6) does, in order:
+  1. `document.close { _ in … }` — `UIDocument.close` flushes pending changes through its internal autosave queue before invoking the completion (preserves walking-skeleton-1 AC-4.4 save-before-leave behavior).
+  2. Inside the close completion: `UntouchedFileTracker.shared.cleanupIfUntouched(url: document.fileURL)` — deletes the file if untouched. Must come after close so any not-yet-flushed edits are persisted before potential deletion.
+  3. `document.fileURL.stopAccessingSecurityScopedResource()` — balances the `startAccessing…` from `LastDocumentStore.resolveLastDocumentURL` (resume path) or `CreateNewDocumentFlow` (create path). Must come last so the deletion in step 2 has the security scope it needs.
+  4. The `dismiss(animated: true)` on the nav controller has already been triggered by the `willShow` callback; the close/cleanup/stopAccessing chain runs in parallel with the dismiss animation.
 
 ### 6. `UntouchedFileTracker.swift` *(new)*
 
@@ -124,52 +153,51 @@ Trade-offs:
 
 - **State.** `private var untouchedURLs: Set<URL>`.
 - **`registerUntouched(url: URL)`** *(AC-6.1 setup)*: inserts URL into the set. Called by `CreateNewDocumentFlow`.
-- **`markTouched(url: URL)`** *(AC-6.2)*: removes URL from the set. Called by `MarkdownDocument` on first keystroke. Idempotent — safe to call repeatedly.
+- **`markTouched(url: URL)`** *(AC-6.2)*: removes URL from the set. Called by `MarkdownDocument` on first keystroke. Idempotent.
+- **`isUntouched(url: URL) -> Bool`** *(supports component #8's session-scoped mode decision after F-001 is addressed in requirements)*: returns true iff URL is in the untouched set. Read-only — does not mutate state.
 - **`cleanupIfUntouched(url: URL)`** *(AC-6.1, AC-6.4)*: if URL is in the set, attempts `try? FileManager.default.removeItem(at: url)` and removes from the set regardless of delete success. Silent on failure (EC-15 / AC-6.4).
-- **`cleanupAllUntouched()`** *(AC-6.5 force-quit best-effort path)*: iterates the set and removes each. Called from `SceneDelegate.sceneDidEnterBackground` and `applicationWillTerminate`. Best-effort; if the app is killed before this fires, a zero-byte stub may remain on disk (EC-16, acceptable per AC-6.4).
-- **Last-opened pointer revert** *(AC-6.5)*: when `cleanupIfUntouched` actually deletes a file, it also notifies `LastDocumentStore` to **not** record this URL as last-opened. Implementation: `CreateNewDocumentFlow` defers calling `LastDocumentStore.record(url:)` until *after* the first keystroke, not at create time. Until then, the previous last-opened pointer remains. This is a minor protocol change between components — flagged for the build agent.
+- **`cleanupAllUntouched()`** *(AC-6.5)*: iterates the set and removes each. Called from `ContentView.onChange(of: scenePhase)` on `.background` (component #1). Best-effort; if the app is killed before this fires, a zero-byte stub may remain on disk (EC-16, acceptable per AC-6.4).
 
 ### 7. `SaveStatusObserver.swift` *(simplified)*
 
-Walking-skeleton-1's `SaveStatusObserver` used a global `UIDocument.stateChangedNotification` subscription because `DocumentGroup` did not expose the `UIDocument` instance (walking-skeleton-1 design #11). Now that we hold the `UIDocument` directly:
-
-- Subscription becomes per-document: `NotificationCenter.default.addObserver(forName: UIDocument.stateChangedNotification, object: document, ...)`. No more global-subscription single-document assumption.
-- The "future-feature risk" callout in walking-skeleton-1 #11 is resolved.
-- Otherwise unchanged.
+With the migration to `UIDocument`, the observer can subscribe per-document: `NotificationCenter.default.addObserver(forName: UIDocument.stateChangedNotification, object: document, ...)`. The "global notification + single-document assumption" workaround from walking-skeleton-1 #11 is no longer required.
 
 ### 8. `DocumentView.swift` *(small modification)*
 
-- Accepts a `MarkdownDocument` (now a `UIDocument` instance) instead of an environment-bound document.
-- New initialization param: optional `onDismiss: () -> Void` — invoked by the back chevron and edge-swipe path so the hosting nav controller knows to dismiss.
-- The toolbar back chevron is no longer the SwiftUI default — it's a UIKit `UIBarButtonItem` installed on the hosting controller's `navigationItem.leftBarButtonItem` by `MarkusDocumentBrowserViewController.presentDocument(at:)`. Inside the SwiftUI view, no chevron is rendered; the chevron is part of the UIKit nav bar surrounding the hosting controller.
-- **New-document keyboard-up behavior** *(AC-4.4)*: when `DocumentView` is initialized with a zero-byte document, the initial mode is `.raw` (overriding the existing `initialByteSize`-based logic) **and** the raw editor focuses the text view immediately, raising the keyboard. Implementation: a `@FocusState` bound to the `TextEditor` is set to `true` in `.onAppear` when the document is zero-byte. The mode-from-byte-size logic in walking-skeleton-1 stays but is preempted by the zero-byte case here.
+- Accepts a `MarkdownDocument` (now a `UIDocument` instance) directly via init.
+- The toolbar back chevron is **not** rendered by SwiftUI — the native `backBarButtonItem` on the wrapping `UIHostingController.navigationItem` provides it (component #2). Inside the SwiftUI view, no chevron is rendered.
+- **New-document keyboard-up behavior** *(AC-4.4)*: a `@FocusState`-bound `TextEditor` is set to `true` in `.onAppear` when the initial mode is `.raw`. The decision of which initial mode to enter for a zero-byte document is currently byte-size-based (per AC-4.4 as written), but adversarial F-001 surfaces a contradiction with EC-23 that will be resolved in the next `/t3-requirements` pass. After that pass, the initial-mode decision will likely consult `UntouchedFileTracker.shared.isUntouched(url:)` rather than byte size — design will be updated accordingly when requirements clarifies.
 
 ### 9. `Info.plist` updates
 
-- Add scene configuration entries (`UIApplicationSceneManifest` → `UIWindowSceneSessionRoleApplication` → custom scene class for `SceneDelegate`).
-- Confirm `UISupportsDocumentBrowser = YES` and `LSSupportsOpeningDocumentsInPlace = YES` (AC-5.4). Walking-skeleton-1 should already have these via `DocumentGroup`, but verify post-migration.
+*Addresses adversarial F-002.*
+
+- **`UIApplicationSupportsMultipleScenes = NO`** — explicit single-scene enforcement. Walking-skeleton-1 used `DocumentGroup` which typically enables multi-scene by default for iPad. This setting must be flipped to `NO` during the migration. Verify on an iPad simulator that App Switcher's "+New Window" action does not appear for Markus.
+- Scene configuration: `UIApplicationSceneManifest` → `UISceneConfigurations` → one default config for the application role, with no `UISceneDelegateClassName` (we use SwiftUI scene lifecycle, no UIKit SceneDelegate).
+- `UISupportsDocumentBrowser = YES` and `LSSupportsOpeningDocumentsInPlace = YES` (AC-5.4). Walking-skeleton-1 already set these via `DocumentGroup`; verify post-migration.
 - UTType document-types entries (the markdown content types) carry over from walking-skeleton-1.
 
 ### 10. `PrivacyInfo.xcprivacy`
 
-- No new entries required by this feature. The categories walking-skeleton-1 declared (`FileTimestamp`, `UserDefaults`, `DiskSpace`) cover this feature's behaviors (the bookmark write uses `UserDefaults`; the Untitled collision probe uses file metadata).
+No new entries required. Walking-skeleton-1's declared categories (`FileTimestamp`, `UserDefaults`, `DiskSpace`) cover this feature's behaviors.
 
 ## Project layout
 
 Additions and modifications to walking-skeleton-1's layout:
 
 ```
+Markus_v3.xcodeproj/
 Markus_v3/
   App/
-    Markus_v3App.swift              [rewritten — thin SwiftUI shell + UIApplicationDelegateAdaptor]
-    AppDelegate.swift               [new]
-    SceneDelegate.swift             [new]
-    Info.plist                      [updated — scene config]
+    Markus_v3App.swift              [rewritten — pure SwiftUI App, no AppDelegate]
+    ContentView.swift               [new — hosts BrowserHostView + lifecycle modifiers]
+    Info.plist                      [updated — UIApplicationSupportsMultipleScenes=NO, no SceneDelegate]
     PrivacyInfo.xcprivacy           [unchanged]
   DocumentBrowser/                  [new directory]
+    BrowserHostView.swift           [new — UIViewControllerRepresentable + Coordinator]
     MarkusDocumentBrowserViewController.swift   [new]
-    CreateNewDocumentFlow.swift                 [new]
-    UntitledNameResolver.swift                  [new]
+    CreateNewDocumentFlow.swift     [new]
+    UntitledNameResolver.swift      [new]
   Persistence/                      [new directory]
     LastDocumentStore.swift         [new]
   Documents/
@@ -182,26 +210,27 @@ Markus_v3/
     DocumentMode.swift              [unchanged]
     AutosaveCoordinator.swift       [unchanged]
   Views/
-    DocumentView.swift              [updated — accepts UIDocument, zero-byte → raw + focus]
+    DocumentView.swift              [updated — accepts UIDocument, no SwiftUI chevron]
     RenderedView.swift              [unchanged]
     RawEditorView.swift             [unchanged]
     DocumentLoadingView.swift       [unchanged]
     ToastModifier.swift             [unchanged]
-Markus_v3Tests/
-  ... existing tests ...
-  UntitledNameResolverTests.swift   [new — pure unit, exhaustive collision matrix]
+Markus_v3Tests/                     (Swift Testing unit tests)
+  ... existing walking-skeleton-1 tests, MarkdownDocument tests rewritten ...
+  UntitledNameResolverTests.swift   [new — exhaustive collision matrix, no disk]
   LastDocumentStoreTests.swift      [new — bookmark roundtrip with temp files]
   UntouchedFileTrackerTests.swift   [new — register/touch/cleanup semantics]
-  CreateNewDocumentFlowTests.swift  [new — directory-fallback + Untitled-naming integration]
-  MarkdownDocumentMigrationTests.swift  [new — load/save/dirty under UIDocument]
-Markus_v3UITests/
-  WalkingSkeletonFlowUITests.swift  [updated — adjust for new app shell, still asserts skeleton flow]
-  ResumeAndCreateFlowUITests.swift  [new — resume on relaunch, create-from-browser end-to-end]
+  CreateNewDocumentFlowTests.swift  [new — directory-fallback + Untitled naming]
+  MarkdownDocumentLifecycleTests.swift  [new — UIDocument open/close behavior, F-004 paths]
+Markus_v3UITests/                   (XCUITest end-to-end)
+  WalkingSkeletonFlowUITests.swift  [updated for new app shell]
+  ResumeAndCreateFlowUITests.swift  [new — resume on relaunch, create-from-browser]
+Package.resolved
 ```
 
 ## Dependencies
 
-No new external dependencies. MarkdownUI remains the sole external SwiftPM dependency, pinned per walking-skeleton-1.
+No new external dependencies.
 
 ## Contracts and seams
 
@@ -209,47 +238,45 @@ Mapping to declaration.md's Shape, updated for this feature:
 
 | Seam | This-feature realization | Notes |
 |---|---|---|
-| Document browser entry | `MarkusDocumentBrowserViewController` (UIKit, scene root) — replaces walking-skeleton-1's `DocumentGroup` | The architectural shift |
-| File access layer | `LastDocumentStore` (bookmarks) + `MarkdownDocument` as `UIDocument` + `CreateNewDocumentFlow` (write + naming) + `UntouchedFileTracker` (cleanup) | Now first-class; bookmark persistence and write-new-file are the new capabilities |
-| Document model | `MarkdownDocument` (now `UIDocument`) | Same responsibilities, different base class |
+| Document browser entry | `MarkusDocumentBrowserViewController` via `BrowserHostView` representable | Pattern 2 hybrid: SwiftUI App owns the window, UIKit provides the controller |
+| File access layer | `LastDocumentStore` (bookmarks via NSUserActivity) + `MarkdownDocument` (UIDocument) + `CreateNewDocumentFlow` + `UntouchedFileTracker` | First-class file lifecycle now exists |
+| Document model | `MarkdownDocument` (UIDocument) | Same responsibilities, different base class; lifecycle explicit per F-004 |
 | Rendered view | `RenderedView` | Unchanged |
-| Raw editor | `RawEditorView` | Unchanged; gains `@FocusState`-driven keyboard-on-launch for zero-byte documents |
-| Mode switcher | `@State mode: DocumentMode` in `DocumentView` | Unchanged; new entry condition for zero-byte = `.raw` |
-| Conflict & lifecycle UI | `DocumentError` + alert surface (walking-skeleton-1 #8) — reused for EC-12 "couldn't create" error | The deletion banner and three-option sheet are still Roadmap #3 |
-
-Each new component has an obvious extension point for the next Roadmap feature:
-- Roadmap #3 (conflict + lifecycle): `SaveStatusObserver` is now per-document and observes a `UIDocument` reference directly, so external-change and deletion detection slot in cleanly. The three-option conflict sheet has a natural home alongside `ActiveAlert`.
-- Roadmap #4 (scroll anchor): unchanged from walking-skeleton-1's plan.
-- Roadmap #6 (editing polish): `RawEditorView` is still the surface; the `@FocusState` hook added here is reusable.
+| Raw editor | `RawEditorView` | Unchanged; gains `@FocusState` for keyboard-up on new files |
+| Mode switcher | `@State mode: DocumentMode` in `DocumentView` | Initial-mode logic will be revised after F-001 requirements pass |
+| Conflict & lifecycle UI | `DocumentError` + alert surface | Reused for EC-12 "couldn't create" error and the open-failure paths in F-004 |
 
 ## Build agent must know
 
-- **The DocumentGroup → UIDocumentBrowserViewController migration is the largest single change.** Build it first as a refactor of `Markus_v3App` + addition of `AppDelegate` + `SceneDelegate` + `MarkusDocumentBrowserViewController`, verify the skeleton flow still works end-to-end before adding resume or create logic on top. The DAG should reflect this — migration is Wave 1, resume and create live in later waves.
-- **MarkdownDocument's class hierarchy changes (`ReferenceFileDocument` → `UIDocument`).** Existing `MarkdownDocumentTests` from walking-skeleton-1 require rewriting against the new base class. Do not delete them; rewrite. The behaviors under test (UTF-8 decode failure, `initialByteSize`, dirty-on-edit, save-to-original-location) still apply.
-- **Security scope is acquired by `LastDocumentStore.resolveLastDocumentURL()` and must be released by the caller** when the document closes. `MarkdownDocument`'s close handler is the natural place for `stopAccessingSecurityScopedResource()`. Forgetting this leaks a file handle and causes the next resume to fail.
-- **`UntouchedFileTracker.registerUntouched(url:)` must be called before the file is opened in `DocumentView`.** Otherwise, if the user immediately taps back without typing, the file leaks.
-- **`LastDocumentStore.record(url:)` is called only after the first keystroke for newly created documents**, not at creation time. This is so an untouched-and-cleaned-up Untitled file does not become the resume target (AC-6.5).
-- **The back-chevron `UIBarButtonItem` is installed by `MarkusDocumentBrowserViewController.presentDocument(at:)`**, not by SwiftUI inside `DocumentView`. Do not also add a SwiftUI-side chevron — double chrome.
-- **Edge-swipe-back is implemented as a `UIScreenEdgePanGestureRecognizer` on the nav controller's view**, not via `interactivePopGestureRecognizer`. The recognizer's action calls the same dismiss path as the back chevron. (See Requirements implications.)
-- **All UI work runs on `@MainActor`.** Inherited from walking-skeleton-1. `LastDocumentStore`, `CreateNewDocumentFlow`, and `UntouchedFileTracker` are all explicitly `@MainActor`.
-- **Tests for `LastDocumentStore` use temp-directory bookmarks** to avoid touching real iCloud state. Tests for `UntitledNameResolver` use an injected `FileManager` mock and never touch disk.
+- **Pattern 2 app entry — do not introduce a SceneDelegate.** SwiftUI's `App` + `WindowGroup` + `UIViewControllerRepresentable` is the canonical hybrid. Adding a SceneDelegate creates competing scene ownership.
+- **Single-scene enforcement is non-negotiable for this feature.** `UIApplicationSupportsMultipleScenes = NO`. If the iPad simulator shows a "+" in App Switcher for Markus, the setting is wrong.
+- **Placeholder VC is invisible by design.** Do not give it content. Its only job is to provide a previous-page title for `backBarButtonItem`.
+- **UIDocument open before present, close before dismiss.** Sequencing is in component #5's lifecycle subsection. Skipping this produces blank documents on open and lost edits on close.
+- **MarkdownDocument migration breaks walking-skeleton-1 tests.** Rewrite `MarkdownDocumentTests.swift` against the new UIDocument lifecycle; keep the behaviors under test (UTF-8 decode failure, initialByteSize, dirty-on-edit, save-to-original-location).
+- **Security scope is acquired by `LastDocumentStore.resolveLastDocumentURL()` / `CreateNewDocumentFlow` and released in `UIDocument` close lifecycle.** Forgetting `stopAccessing…` leaks file handles and causes the next resume to fail.
+- **`UntouchedFileTracker.registerUntouched(url:)` is called by `CreateNewDocumentFlow` before the URL is returned to the browser.** Otherwise an immediate back-tap leaks a zero-byte file.
+- **`LastDocumentStore.record(url:)` for newly-created documents is deferred until first keystroke**, not at creation time. Implementation: `MarkdownDocument`'s first-keystroke hook calls `record` only if the document is in the untouched-tracker set, which is the marker for "newly created this session."
+- **`URL.bookmarkData` can throw — wrap in `try?` with a debug log** per component #3's silent-failure policy.
+- **All UI work runs on `@MainActor`.** Inherited from walking-skeleton-1.
 
 ## Requirements implications
 
-Second pass. All three RIs from the first pass are resolved:
+Third pass. RI-1, RI-2, RI-3 from prior passes are resolved. Adversarial findings F-002, F-003, F-004, F-005, F-006 are addressed in design (this pass). One new implication surfaces:
 
-### RI-1 — App-shell architecture migration (DocumentGroup → UIDocumentBrowserViewController) — **resolved**
+### RI-1, RI-2, RI-3 — resolved in prior loop (unchanged).
 
-User explicitly approved the migration. The requirements text did not require changes; the approval is captured in the project decision log (informal — recorded in the feature folder's chat history and reflected in this design's High-level shape section).
+### RI-4 (new) — AC-3.3 edge-swipe mechanism reverts to native `interactivePopGestureRecognizer`
 
-### RI-2 — AC-3.3 edge-swipe-back mechanism — **resolved in requirements**
+**Background.** RI-2 (resolved in the second pass) rewrote AC-3.3 to specify `UIScreenEdgePanGestureRecognizer` because the then-design used a present-with-zoom-transition pattern with a single-VC presented controller, which has no `interactivePopGestureRecognizer`.
 
-Requirements AC-3.3 has been rewritten to drop the `UINavigationController.interactivePopGestureRecognizer` citation and to specify `UIScreenEdgePanGestureRecognizer` as the implementation mechanism. Design and requirements agree.
+This pass adopts pattern (b) from adversarial F-005 — a placeholder-VC trick so `documentVC` is the top of a multi-VC nav stack. As a side effect, `interactivePopGestureRecognizer` is now active by default, and a custom `UIScreenEdgePanGestureRecognizer` is no longer needed (and would conflict if implemented). AC-3.3's current text — which prescribes `UIScreenEdgePanGestureRecognizer` — is now stale.
 
-### RI-3 — Zero-byte / new-file mode-default override — **resolved in requirements**
+**Proposed requirements revision** (to be applied in the next `/t3-requirements` pass):
 
-Requirements AC-4.4 has been expanded with the one-line clarification that zero-byte (new) files always open in raw mode with keyboard up, explicitly overriding walking-skeleton-1 EC-2's mode-from-byte-size rule. Design and requirements agree.
+> AC-3.3: A left-to-right screen-edge swipe gesture from the left edge of the document view also returns the user to the document browser, with the same save-first behavior as the back chevron. The gesture is the system-provided `UINavigationController.interactivePopGestureRecognizer`, which is active because the document view is the top of a two-VC navigation stack (see design.md component #2 for the placeholder-VC mechanism that enables both the native back chevron and the native interactive pop).
+
+This restores the natural Apple gesture mechanism (matching the original declaration intent before RI-2). It also keeps RI-4 consistent with F-005's resolution.
 
 ---
 
-**Architecture stable — no requirements changes flagged.** Requirements ↔ architecture loop has converged. Ready for `/t3-adversarial`.
+**Architecture not stable** — RI-4 is a new requirements change. Next step is `/t3-requirements` to fold RI-4 into AC-3.3 *and* to address adversarial F-001 (the zero-byte mode-default ambiguity) in the same pass. After requirements absorbs both, `/t3-architecture` is re-run to confirm convergence.

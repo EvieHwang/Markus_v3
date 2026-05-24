@@ -23,7 +23,7 @@
 
   Concrete failure mode: on iPad, two scenes (two app windows) racing on the single `LastDocumentStore.bookmarkKey` UserDefault. Scene A persists URL_A → Scene B persists URL_B → next cold launch resumes URL_B regardless of which scene the user thought was "the one." The bookmark is a per-app global, not per-scene, which is wrong under multi-scene.
 - **Recommended action:** `t3-architecture` — add an explicit Info.plist directive (`UIApplicationSupportsMultipleScenes = NO`) to design.md component #9, and add a one-line build-agent note that confirms the setting must be flipped if walking-skeleton-1 left it true.
-- **Status:** `open`
+- **Status:** `addressed` — design.md component #9 now specifies `UIApplicationSupportsMultipleScenes = NO` with a build-agent verification note (third pass).
 
 ### F-003 — App-entry pattern is hand-wavy; risks two competing root scenes
 - **Severity:** MEDIUM
@@ -39,7 +39,7 @@
 
   Design must pick one. The current "WindowGroup { EmptyView() } + SceneDelegate driving UIKit" is none of the three.
 - **Recommended action:** `t3-architecture` — choose pattern 1 or pattern 2 explicitly. My read: **pattern 2** is the cleanest for this app because it keeps `@main App` SwiftUI-flavored, hosts the browser as a representable, and lets `NSUserActivity` restoration flow through SwiftUI's `.onContinueUserActivity` and `.handlesExternalEvents` modifiers without a separate SceneDelegate. The "resume directly into a document on cold launch" path then becomes: on `body` evaluation, consult `LastDocumentStore.resolveLastDocumentURL()`; if non-nil, the representable triggers `browser.presentDocument(at:)` in its `updateUIViewController` or coordinator. Pattern 1 is also viable if pattern 2 turns out to have a corner case I'm missing.
-- **Status:** `open`
+- **Status:** `addressed` — design.md adopts pattern 2 explicitly: `Markus_v3App` is a pure SwiftUI App with `WindowGroup { ContentView() }`, no AppDelegate / no SceneDelegate. `BrowserHostView` is the representable; resume orchestration lives in `MarkusDocumentBrowserViewController.viewDidAppear` first-appearance branch (third pass).
 
 ### F-004 — UIDocument async open/close lifecycle is unspecified
 - **Severity:** MEDIUM
@@ -51,7 +51,7 @@
   - What happens on `open` failure? Causes include: file deleted between bookmark resolution and open (race window EC-3 doesn't cover); EC-4 invalid-UTF-8 from walking-skeleton-1; iCloud download failure mid-open. Design component #2 says "On document open success, calls `LastDocumentStore.shared.record(url:)`" but never says what the failure path does. The user could see the zoom transition complete into a blank document with no error.
   - When does `document.close(completionHandler:)` get called on dismiss? The back-chevron and edge-swipe handlers in component #2 only mention "dismisses the modal." Forgetting `close` means changes may not flush and `stopAccessingSecurityScopedResource()` leaks.
 - **Recommended action:** `t3-architecture` — add a `UIDocument` lifecycle subsection to component #5 spelling out: open is called in `presentDocument(at:)` before the hosting controller is shown (with a brief loading spinner if open is slow); on open failure, dismiss the modal and surface the existing `DocumentError` alert (`.invalidEncoding`, `.iCloudDownloadFailed`, or `.fileMissing`); on dismiss, call `close(completionHandler:)` and then `cleanupIfUntouched` and `stopAccessingSecurityScopedResource()` in that order. Then walking-skeleton-1's EC-4 / EC-13 behaviors will continue to apply through this feature's flow.
-- **Status:** `open`
+- **Status:** `addressed` — design.md component #5 now has a dedicated "UIDocument open/close lifecycle" subsection covering open-before-present, failure discrimination via `documentState`, brief loading state, close-before-dismiss with the cleanup/stopAccessing ordering chain, and the resume-path bookmark clearing on `.fileMissing` / `.iCloudDownloadFailed` (third pass).
 
 ### F-005 — "Back chevron + 'Documents' label" is hard to render natively for a presented (not pushed) modal
 - **Severity:** MEDIUM
@@ -61,7 +61,7 @@
   - **(b)** Construct the presented stack as `[placeholderVC, documentVC]` so `documentVC` has a real `backBarButtonItem` whose title is the placeholder's title. Hacky but produces a native chevron.
   - **(c)** Accept just the chevron with no title (which is what some Apple apps do, e.g., Photos).
 - **Recommended action:** `t3-architecture` to pick one of (a)/(b)/(c) and document it in component #2. If (a), AC-3.1 should be revised to accept the visual divergence. If (b), design adds the placeholder-stack mechanism. If (c), AC-3.1 should be revised to "chevron only."
-- **Status:** `open`
+- **Status:** `addressed` — design.md adopts option **(b)**, the placeholder-VC trick. Component #2's `presentDocument(at:)` constructs a `UINavigationController` with stack `[placeholderVC, documentVC]`; the native `backBarButtonItem` on `documentVC` renders as "‹ Documents" identically to Apple's first-party document apps. A nav-controller-delegate `willShow placeholderVC` intercept triggers `dismiss(animated:)` with the browser's reverse-zoom transition, so the placeholder is never visible. Side effect: `interactivePopGestureRecognizer` is now natively available, which surfaces a new requirements implication (RI-4) — AC-3.3's `UIScreenEdgePanGestureRecognizer` prescription is now stale and should revert to the native gesture in the next `/t3-requirements` pass (third pass).
 
 ### F-006 — `LastDocumentStore.record(url:)` failure path unspecified
 - **Severity:** LOW
@@ -69,7 +69,7 @@
 - **Finding.** Design component #3 says `record(url:)` "creates a bookmark with `URL.bookmarkData(...)` and writes it to UserDefaults." `URL.bookmarkData` can throw — for example, on URLs that aren't bookmarkable (some share-extension inbox URLs, some sandboxed temp paths), or if security scope cannot be opened. Design doesn't say what happens on throw. The likely silent-failure mode: the bookmark is never persisted, so the next launch falls through to the browser (per AC-2.2). The user sees the document fine in the current session but cannot understand why "resume" didn't work next time. This is consistent with "no UI for stale-bookmark cases" in spirit, but the user's mental model breaks because the file *was* opened successfully.
 - **Recommended action:** Either `t3-requirements` (add an EC documenting that bookmark-record failures are silent and resume falls through next launch) or `t3-architecture` (specify the catch behavior in component #3, even if it's `try? bookmarkData()` and a debug log). Build agent will otherwise probably implement `try!` and crash on a corner-case URL.
 - **Location:** design.md component #3 (`LastDocumentStore.record(url:)`); requirements.md edge cases section.
-- **Status:** `open`
+- **Status:** `addressed` — design.md component #3 now explicitly specifies the failure handling in `record(url:)`: catch the throw, log via `os_log` at debug level, preserve any previously persisted bookmark, return without persisting. Visible consequence (silent fall-through to browser on next launch) is documented and aligned with the declaration's silent-failure stance. No requirements change needed (third pass).
 
 ## Resolved findings
 
