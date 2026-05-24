@@ -35,7 +35,7 @@
 **Acceptance criteria:**
 - AC-3.1: The document view's navigation bar shows the standard back chevron in the top-left, labeled per system convention (chevron alone, or chevron + previous-screen title — whatever `UINavigationController` produces by default).
 - AC-3.2: Tapping the back chevron returns the user to the document browser. Any pending edits are saved first per walking-skeleton AC-4.4.
-- AC-3.3: The standard screen-edge left-to-right swipe-back gesture (`UINavigationController.interactivePopGestureRecognizer`) also returns the user to the document browser, with the same save-first behavior.
+- AC-3.3: A left-to-right screen-edge swipe gesture from the left edge of the document view also returns the user to the document browser, with the same save-first behavior as the back chevron. Implementation uses `UIScreenEdgePanGestureRecognizer` rather than `UINavigationController.interactivePopGestureRecognizer`, because the document is presented modally over the browser (with the system zoom transition) rather than pushed onto a navigation stack — see design.md RI-2.
 - AC-3.4: The back affordance is available from both rendered mode and raw mode.
 - AC-3.5: After returning to the browser, the user can pick a different file or use Create Document. The previously open file remains the "last-opened" file for resume purposes **until** another file is opened or created.
 
@@ -48,7 +48,7 @@
 - AC-4.1: The document browser's existing **Create Document** affordance is wired to `UIDocumentBrowserViewController`'s `documentBrowser(_:didRequestDocumentCreationWithHandler:)` (HIG-canonical creation hook).
 - AC-4.2: The creation handler resolves the **directory of the last-opened file** as the target directory. This is the parent of the file referenced by the persisted bookmark; security scope to that parent must be acquired the same way it is for the file itself.
 - AC-4.3: The handler chooses a filename of the form `Untitled.md`, `Untitled 2.md`, `Untitled 3.md`, … selecting the **lowest unused integer suffix** (no suffix for the first, then 2, 3, 4, …). Existing files in the directory — whether created by Markus or any other app — are never overwritten.
-- AC-4.4: The new file is created on disk **with zero bytes** as a placeholder for the `UIDocumentBrowserViewController` handoff. It is opened immediately into the document view in **raw mode** with the **keyboard active** and the cursor at the start of the document.
+- AC-4.4: The new file is created on disk **with zero bytes** as a placeholder for the `UIDocumentBrowserViewController` handoff. It is opened immediately into the document view in **raw mode** with the **keyboard active** and the cursor at the start of the document. The zero-byte case explicitly overrides walking-skeleton-1 EC-2's mode-from-byte-size rule (which would otherwise open a < 500 KB file in rendered mode) — new files always open in raw with keyboard up, regardless of byte size.
 - AC-4.5: On successful creation and open, the new file becomes the "last-opened" file for future resume and future create-in-last-directory operations.
 
 ### US-5 — Create a new file when there is no last-opened directory
@@ -132,4 +132,15 @@
 
 ## Notes on changes
 
-First pass for this feature. No prior `design.md` or `adversarial-review.md` to reconcile against. Once `t3-architecture` runs and surfaces design constraints, this document is revised; once `t3-adversarial` runs, any `open` findings tagged for requirements come back here.
+**Second pass — folds in architecture-side feedback from design.md (RI-2 and RI-3).** Changes:
+
+- **AC-3.3 rewritten** — drops the `UINavigationController.interactivePopGestureRecognizer` citation and reflects that edge-swipe-back is implemented via `UIScreenEdgePanGestureRecognizer`. The document is presented modally over the browser with the system zoom transition (the HIG-canonical pattern for `UIDocumentBrowserViewController`), so the free `interactivePopGestureRecognizer` of a navigation push is not available. The screen-edge pan recognizer produces the same user-visible behavior; the dismiss action is shared with the back chevron. (Addresses design RI-2.)
+- **AC-4.4 expanded** — adds a one-line clarification that zero-byte new files always open in raw mode with keyboard up, overriding walking-skeleton-1 EC-2's "files < 500 KB open in rendered mode" default. Without this override the rules would contradict each other on the new-file path. (Addresses design RI-3.)
+
+Design RI-1 (the architectural migration from `DocumentGroup` to `UIDocumentBrowserViewController` and from `ReferenceFileDocument` to `UIDocument`) is approved separately; no requirements text changes were needed because the requirements already named UIKit APIs by design.
+
+**First-pass content (retained):** all six user stories, all 23 edge cases, and the standards check are unchanged from the first pass.
+
+No new requirements-side adversarial findings — `adversarial-review.md` does not yet exist for this feature.
+
+Requirements stable — no further architecture changes pending. Re-running `/t3-architecture` should now report stable on its side as well, closing the requirements ↔ architecture loop.
