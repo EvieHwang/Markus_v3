@@ -166,7 +166,7 @@ With the migration to `UIDocument`, the observer can subscribe per-document: `No
 
 - Accepts a `MarkdownDocument` (now a `UIDocument` instance) directly via init.
 - The toolbar back chevron is **not** rendered by SwiftUI — the native `backBarButtonItem` on the wrapping `UIHostingController.navigationItem` provides it (component #2). Inside the SwiftUI view, no chevron is rendered.
-- **New-document keyboard-up behavior** *(AC-4.4)*: a `@FocusState`-bound `TextEditor` is set to `true` in `.onAppear` when the initial mode is `.raw`. The decision of which initial mode to enter for a zero-byte document is currently byte-size-based (per AC-4.4 as written), but adversarial F-001 surfaces a contradiction with EC-23 that will be resolved in the next `/t3-requirements` pass. After that pass, the initial-mode decision will likely consult `UntouchedFileTracker.shared.isUntouched(url:)` rather than byte size — design will be updated accordingly when requirements clarifies.
+- **New-document keyboard-up behavior** *(AC-4.4, final wording in third-pass requirements)*: the initial-mode decision in `.onAppear` is **session-provenance-based**, not byte-size-based. The logic is: if `UntouchedFileTracker.shared.isUntouched(url: document.fileURL)` returns true (the document was created via `CreateNewDocumentFlow` in this app session and has not yet received a keystroke), enter `.raw` mode and set the `@FocusState`-bound `TextEditor` to `true` (raising the keyboard, cursor at start). Otherwise, fall back to walking-skeleton-1 EC-2's byte-size default: `initialByteSize >= 500 * 1024` → `.raw` (no auto-focus); else `.rendered`. The byte-size branch is the path taken by browser-picked files, resumed files, share-imported files, and any zero-byte file that survived a force-quit and is being opened via the resume path (EC-23).
 
 ### 9. `Info.plist` updates
 
@@ -261,22 +261,15 @@ Mapping to declaration.md's Shape, updated for this feature:
 
 ## Requirements implications
 
-Third pass. RI-1, RI-2, RI-3 from prior passes are resolved. Adversarial findings F-002, F-003, F-004, F-005, F-006 are addressed in design (this pass). One new implication surfaces:
+Fourth pass. All four RIs from prior passes are resolved:
 
-### RI-1, RI-2, RI-3 — resolved in prior loop (unchanged).
+- **RI-1** (DocumentGroup → UIDocumentBrowserViewController + ReferenceFileDocument → UIDocument migration) — resolved in second loop; explicitly approved by the user.
+- **RI-2** (AC-3.3 edge-swipe mechanism — first revision) — resolved in second loop; superseded by RI-4.
+- **RI-3** (zero-byte / new-file mode-default — initial clarification) — resolved in second loop; superseded by adversarial F-001's session-provenance refinement.
+- **RI-4** (AC-3.3 edge-swipe mechanism — revert to native `interactivePopGestureRecognizer`) — **resolved this pass**. Requirements AC-3.3 has been rewritten to the proposed text; design component #2's placeholder-VC mechanism produces the native gesture for free.
 
-### RI-4 (new) — AC-3.3 edge-swipe mechanism reverts to native `interactivePopGestureRecognizer`
-
-**Background.** RI-2 (resolved in the second pass) rewrote AC-3.3 to specify `UIScreenEdgePanGestureRecognizer` because the then-design used a present-with-zoom-transition pattern with a single-VC presented controller, which has no `interactivePopGestureRecognizer`.
-
-This pass adopts pattern (b) from adversarial F-005 — a placeholder-VC trick so `documentVC` is the top of a multi-VC nav stack. As a side effect, `interactivePopGestureRecognizer` is now active by default, and a custom `UIScreenEdgePanGestureRecognizer` is no longer needed (and would conflict if implemented). AC-3.3's current text — which prescribes `UIScreenEdgePanGestureRecognizer` — is now stale.
-
-**Proposed requirements revision** (to be applied in the next `/t3-requirements` pass):
-
-> AC-3.3: A left-to-right screen-edge swipe gesture from the left edge of the document view also returns the user to the document browser, with the same save-first behavior as the back chevron. The gesture is the system-provided `UINavigationController.interactivePopGestureRecognizer`, which is active because the document view is the top of a two-VC navigation stack (see design.md component #2 for the placeholder-VC mechanism that enables both the native back chevron and the native interactive pop).
-
-This restores the natural Apple gesture mechanism (matching the original declaration intent before RI-2). It also keeps RI-4 consistent with F-005's resolution.
+Adversarial findings F-001 through F-006 are now all `addressed` in adversarial-review.md. Awaiting verification on the next `/t3-adversarial` run.
 
 ---
 
-**Architecture not stable** — RI-4 is a new requirements change. Next step is `/t3-requirements` to fold RI-4 into AC-3.3 *and* to address adversarial F-001 (the zero-byte mode-default ambiguity) in the same pass. After requirements absorbs both, `/t3-architecture` is re-run to confirm convergence.
+**Architecture stable — no requirements changes flagged.** Requirements ↔ architecture loop has converged. Ready for `/t3-adversarial` re-run to verify the addressed findings; on a clean pass, the feature is ready for `/t3-test-coach` and `/t3-generate-dag`.
