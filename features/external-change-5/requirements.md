@@ -152,6 +152,37 @@ This requirement records a declaration-fixed design constraint so downstream sta
 
 ---
 
+## Concurrency integrity (apply-edge guarantees)
+
+These requirements constrain the *moment of action* — when an external-change outcome is applied to the buffer or the disk — independent of how detection is implemented. They exist because detection and classification may occur on a snapshot of state that is no longer current by the time the action lands. They are behavioral and testable: each asserts an observable end-state (no edit lost, no clobber), not a mechanism.
+
+### BR-19 — Absorption never discards edits made after the read snapshot
+**As a** user who is actively typing when an external change is absorbed,
+**when** my buffer changes between the moment the disk content was read and the moment absorption is applied,
+**so that** silent absorption can never silently destroy work I just typed,
+**I want** the absorb decision re-validated against my current buffer before any buffer mutation, never applied against a stale snapshot.
+*Addresses adversarial F-001 (requirements portion).*
+
+Acceptance criteria:
+- BR-19.1 If the buffer was clean when an external change was read but became dirty (the user typed) before absorption is applied, the clean-buffer absorb path (BR-1) does NOT run: the just-typed edits are not overwritten. The change is re-evaluated against the now-dirty buffer using the standard rules (BR-2/BR-4): it is absorbed silently only if content-identical, otherwise it surfaces a conflict sheet — it is never silently adopted over the edits.
+- BR-19.2 No external-change resolution (absorb, Keep Theirs, Discard Mine) ever discards buffer edits the user made after the on-disk content used for that resolution was read. The end-state observable: any character the user typed after the read snapshot is either preserved or is the subject of an explicit user choice — never silently lost.
+- BR-19.3 The content-identical absorb path (BR-2) likewise compares against the buffer as it stands at the moment of application; if the buffer diverged from content-identical in the interim, the change is re-evaluated rather than applied as a silent no-op.
+- BR-19.4 Re-validation introduces no new prompt for the safe cases: if the buffer is genuinely unchanged since the read (the common case), absorption proceeds silently exactly as in BR-1/BR-2 — re-validation must not create spurious sheets.
+
+### BR-20 — No write to disk while a collision is classified-but-unresolved
+**As a** user for whom a true collision has been detected,
+**when** the collision has been classified but the conflict sheet has not yet appeared (or is pending resolution),
+**so that** Keep Theirs / Discard Mine can actually recover the external content,
+**I want** autosave and any save-back suspended from the moment the collision is classified, not merely from the moment the sheet is presented.
+
+Acceptance criteria:
+- BR-20.1 From the instant a collision is classified for the open document until the user resolves it, no autosave or save-back writes the buffer to the followed location. The disagreeing on-disk content that the collision is about remains intact and recoverable via Keep Theirs / Discard Mine. *Addresses adversarial F-002 (requirements portion); strengthens BR-4.3.*
+- BR-20.2 The suspension covers the latency gap between classification and sheet presentation: a save that was queued or debounced before classification does not fire during this gap and overwrite the external content.
+- BR-20.3 Equivalently, when a deletion is classified, no autosave recreates the file at the vanished path during the gap before the deletion banner is presented (strengthens BR-9.3, extending it from "on the next autosave" to "from the instant deletion is classified").
+- BR-20.4 Suspension lifts only on explicit resolution: Keep Mine performs the single deliberate write (BR-5), while Keep Theirs / Discard Mine / Save As perform no write that clobbers the content the collision was about. Normal autosave resumes only after the collision (or deletion) is resolved.
+
+---
+
 ## Out of scope (restating and sharpening the declaration)
 
 - OOS-1 No version history or browsing past versions — only the live divergence is resolved.
@@ -187,4 +218,10 @@ The following need architectural resolution before requirements can be marked fu
 
 These are scoping/timing decisions, not contradictions in intent. The behavioral surface above is complete; only the four parameters/decisions above must be pinned by design and fed back into the BR-3, BR-6/BR-7, BR-9, and BR-10 acceptance criteria.
 
-Requirements stable — no architectural feedback to incorporate
+### Apply-edge guarantees added in the adversarial revision pass
+
+5. **Re-validation of the absorb/collision classification at the apply edge (BR-19).** Requirements now fix the *behavior* — an absorb decision must be re-validated against the current buffer before any buffer mutation, and edits typed after the read snapshot are never silently lost (BR-19). The *mechanism* (where the main-actor re-check sits in the classify→act flow, and how a buffer that turned dirty mid-read re-derives its outcome) is an architecture concern. Design must add a constraint making this an observable property anchored to BR-1.1/BR-2.3/BR-19. *Addresses adversarial F-001 (architecture portion).*
+
+6. **Autosave suspension keyed to classification, not presentation (BR-20).** Requirements now fix the *behavior* — autosave/save-back is suspended the instant a collision (or deletion) is classified, closing the classification→presentation latency gap (BR-20). The *mechanism* (latching the outcome at classification and gating the save bridge on it, rather than on sheet/banner presentation) is an architecture concern; DC-14/DC-16 currently scope suspension to "while the surface is up" and must be tightened. Design must specify this and anchor it to BR-4.3/BR-9.3/BR-20. *Addresses adversarial F-002 (architecture portion).*
+
+The following still need architectural resolution before requirements can be marked fully stable: items 5 and 6 above. BR-19 and BR-20 are behaviorally complete and testable as end-state guarantees, but the design currently scopes its mutual-exclusion guarantee (save bridge vs. detector) only to "while a sheet/banner is up," which leaves the absorb path and the classify→present gap unguarded. Design must extend that guarantee to the apply edge (re-validate before mutating; suspend from classification) so the BR-19/BR-20 criteria have a mechanism to verify against. Items 1–4 remain resolved by design.md as before.
