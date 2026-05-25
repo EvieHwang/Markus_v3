@@ -52,22 +52,21 @@ struct RenderedView: View {
         .accessibilityIdentifier("RenderedView")
         .opacity(pendingScrollAnchor == nil ? 1 : 0)
         .animation(.easeIn(duration: 0.15), value: pendingScrollAnchor == nil)
-        .task(id: pendingScrollAnchor) {
-            await applyPendingAnchor()
-        }
+        .onChange(of: contentHeight) { _, _ in applyAnchorIfReady() }
+        .onChange(of: pendingScrollAnchor) { _, _ in applyAnchorIfReady() }
     }
 
     @MainActor
-    private func applyPendingAnchor() async {
+    private func applyAnchorIfReady() {
         guard let anchor = pendingScrollAnchor else { return }
-        for _ in 0..<30 {
-            if contentHeight > 0 { break }
-            try? await Task.sleep(for: .milliseconds(16))
+        if anchor.fractionalY == 0 {
+            scrollPosition.scrollTo(y: 0)
+            pendingScrollAnchor = nil
+            return
         }
+        guard contentHeight > 0 else { return }
         let scrollable = max(0, contentHeight - viewportHeight)
-        let target = CGFloat(anchor.fractionalY) * scrollable
-        scrollPosition.scrollTo(y: target)
-        await Task.yield()
+        scrollPosition.scrollTo(y: CGFloat(anchor.fractionalY) * scrollable)
         pendingScrollAnchor = nil
     }
 
