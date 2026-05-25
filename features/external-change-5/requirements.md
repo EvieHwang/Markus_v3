@@ -186,3 +186,5 @@ The following need architectural resolution before requirements can be marked fu
 4. **Reconciliation of the two state observers (BR-10 / consistency note).** Design must specify how the new `NSFileVersion`/`NSFileCoordinator`-based detector and the existing `SaveStatusObserver` coexist without double-counting or racing.
 
 These are scoping/timing decisions, not contradictions in intent. The behavioral surface above is complete; only the four parameters/decisions above must be pinned by design and fed back into the BR-3, BR-6/BR-7, BR-9, and BR-10 acceptance criteria.
+
+Requirements stable — no architectural feedback to incorporate
