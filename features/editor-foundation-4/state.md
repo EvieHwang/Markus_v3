@@ -7,5 +7,5 @@
 | T-003 | `ListContinuationHandler` pure value type | 1 | complete | a8b6b7d |
 | T-004 | `MarkdownEditorTextView` UITextView subclass | 1 | complete | a8b6b7d |
 | T-005 | `MarkdownTextViewBridge` UIViewRepresentable | 2 | complete | d90bcc3 |
-| T-006 | Replace `RawEditorView` body with `MarkdownTextViewBridge` | 3 | pending | |
+| T-006 | Replace `RawEditorView` body with `MarkdownTextViewBridge` | 3 | complete | (pending commit) |
 | T-007 | `DocumentView` anchor wiring + `RenderedView` tap/anchor extension | 4 | pending | |

@@ -11,6 +11,8 @@ struct DocumentView: View {
     @State private var toast: String?
     @State private var coordinator: AutosaveCoordinator
     @State private var saveStatusObserver = SaveStatusObserver()
+    @StateObject private var rawScrollState = RawEditorScrollState()
+    @State private var pendingRawAnchor: ScrollAnchor?
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.undoManager) private var undoManager
@@ -39,7 +41,12 @@ struct DocumentView: View {
                 case .rendered:
                     RenderedView(text: document.text, onTap: { switchTo(.rendered, target: .raw) })
                 case .raw:
-                    RawEditorView(document: document, coordinator: coordinator)
+                    RawEditorView(
+                        document: document,
+                        coordinator: coordinator,
+                        scrollState: rawScrollState,
+                        pendingScrollAnchor: $pendingRawAnchor
+                    )
                 }
             }
         }
