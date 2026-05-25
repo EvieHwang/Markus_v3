@@ -129,3 +129,136 @@ having the bridge post a `Notification` that `SaveStatusObserver` learns
 to listen for, or by adding a SwiftUI callback parameter to
 `DocumentView` that the bridge invokes on failure. Tracking this here so
 the next iteration on lifecycle UI (Roadmap #3) picks it up.
+
+---
+
+## D-004 — UI tests target identifier via wildcard, not `.otherElements` (Wave 4 / T-006–T-008)
+
+**What spec said.** The canonical UI spec at
+`features/resume-and-create-2/tests/ui/ResumeAndCreateUITests.swift`
+queries `RenderedView` via `app.otherElements["RenderedView"]`.
+
+**What we did instead.** In the adapted
+`Markus_v3UITests/ResumeAndCreateUITests.swift`, we changed every
+occurrence to
+`app.descendants(matching: .any).matching(identifier: "RenderedView").firstMatch`.
+
+**Why.** `RenderedView` (`Markus_v3/Views/RenderedView.swift`) is a
+SwiftUI `ScrollView` with `.accessibilityIdentifier("RenderedView")`.
+XCUITest exposes it as element type **ScrollView**, not `Other`. The
+spec's `app.otherElements["RenderedView"]` query never matches because
+of the type predicate, even though the element with the right
+identifier IS in the hierarchy (verified directly from the test-run
+UI-snapshot attachment). The behavioral contract — "the rendered view
+is the first interactive screen on resume" — is satisfied; only the
+XCUITest matcher was over-specific. The wildcard matcher is the
+minimum change to assert the contract; alternative would be to wrap
+the ScrollView in another `Other`-type element solely to satisfy the
+matcher, which adds view-hierarchy weight for no behavioral benefit.
+
+**Impact on requirements.** None. The same accessibility identifier
+(`"RenderedView"`) is asserted; only the XCUITest query is broader.
+
+---
+
+## D-005 — `testBackThenRelaunchStillResumes` re-seeds on relaunch (Wave 4 / T-008)
+
+**What spec said.** The canonical spec calls
+`launch(["-uitest-seed-last-file"])` for both the first launch and the
+relaunch — already correct in the spec. The adapted test in
+`Markus_v3UITests` originally did `launch([])` for the relaunch (a
+divergence introduced while adapting), which then failed because
+XCUITest does not preserve `NSUserDefaults` across
+`XCUIApplication.launch()` invocations (Apple docs: "Application state
+may be lost if state restoration is not implemented").
+
+**What we did instead.** Restored the relaunch arg to
+`["-uitest-seed-last-file"]` to match the spec, and added an explanatory
+comment in the test about XCUITest's NSUserDefaults non-persistence so
+future agents don't introduce the same divergence.
+
+**Why.** The behavioral contract under test is the back-tap → terminate
+→ seed-relaunch → resume CHAIN (specifically, that the back tap doesn't
+crash the resume path on the next launch). The pure cross-launch
+bookmark-persistence question that the divergence appeared to test is
+not actually testable at the XCUITest level — it is covered at the
+logic level by `LastFileStoreTests.readsAreNonDestructive`.
+
+**Impact on requirements.** None — the test now matches the canonical
+spec and asserts the behavioral contract the spec was designed to
+assert.
+
+---
+
+## D-006 — Edge-swipe-back via `UIScreenEdgePanGestureRecognizer`, not `UINavigationController`'s built-in (Wave 4 / T-008)
+
+**What design said.** "The standard edge-swipe-back returns to the
+browser as the standard interactive pop" (DC-14). The seam description
+says "The interactive edge-swipe-pop comes free with that
+presentation/navigation controller."
+
+**What we did instead.** Installed a dedicated
+`UIScreenEdgePanGestureRecognizer` on the modally-presented navigation
+controller's view, with `.edges = .left`, that calls
+`dismissPresentedEditor()` on `.ended`.
+
+**Why.** `UINavigationController.interactivePopGestureRecognizer` only
+fires when the stack has more than one view controller — i.e. it pops
+*within* the nav stack. In our case the editor is the root of the
+modally-presented nav controller (only one VC on the stack), so the
+built-in gesture is a no-op. The presented nav controller is dismissed
+via `dismiss(animated:)`, which is not a nav-pop. To preserve the user
+expectation that an edge-swipe returns to the browser (DC-14), we
+install a custom edge-pan recognizer that triggers the same dismiss
+path the back chevron uses (so the contract that the back path does
+not clear the last-opened reference, DC-15, holds equally for both
+affordances).
+
+**Impact on requirements.** None — DC-14's observable ("Edge-swipe-back
+must reveal the browser") is satisfied. The mechanism is different
+from the seam description's wording but matches the underlying user-
+visible behavior.
+
+---
+
+## D-007 — `DocumentView` gains additive parameters; `RawEditorView` / `MarkdownTextViewBridge` thread `focusOnAppear` (Wave 4 / T-007–T-008)
+
+**What design said.** "DocumentView itself is reused essentially intact
+as the editor surface; the change is *underneath* it... and *around*
+it (launch branch, create handler, leading back affordance)."
+
+**What we did instead.** Added three new init parameters to
+`DocumentView` (all with defaults that match prior behavior, so
+existing call sites compile unchanged):
+
+- `initialMode: DocumentMode?` — overrides the size-based initial mode
+  decision in `onAppear`. Used by the create flow to request `.raw`
+  (DC-8).
+- `focusEditorOnAppear: Bool` — when true, the raw editor's
+  `UITextView` becomes first responder on first appearance, so the
+  keyboard is active (BR-12 / DC-8). Threaded down through
+  `RawEditorView` → `MarkdownTextViewBridge` → its `UIViewRepresentable`.
+- `onBack: (() -> Void)?` — when non-nil, `DocumentView` adds a leading
+  toolbar back chevron whose tap saves and invokes the closure (DC-13).
+
+The hard-seam protected logic (`switchTo`, `toolbarContent`'s rendered
+↔ raw transition rule, `MarkdownDocument` itself, the mode-switch
+behavior) is untouched. The new parameters are *additive* — the
+existing `init(configuration:)` path keeps working with the new
+defaults.
+
+**Why.** The Wave-4 behaviors require:
+- new file → `.raw` on first appearance (DC-8)
+- new file → keyboard active on first appearance (BR-12 / DC-8)
+- both modes expose a leading back chevron (DC-13)
+
+None of these can be expressed by host-side wiring alone — they have
+to manifest inside the SwiftUI view that owns the editor. Threading
+narrow, default-valued parameters into `DocumentView`/`RawEditorView`/
+`MarkdownTextViewBridge` is the minimum change. The alternative — a
+side-channel like a `NotificationCenter` or a static flag —
+introduces hidden coupling between unrelated subsystems for no
+behavioral gain.
+
+**Impact on requirements.** None — the contracts the parameters
+enable are exactly those BR-12 / DC-8 / DC-13 specify.

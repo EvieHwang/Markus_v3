@@ -19,7 +19,7 @@ import Foundation
 /// path the user opened. The path-existence check anchors "reachable" to the
 /// path the user actually opened — matching the requirement's notion of unreachable
 /// (BR-5/BR-20 / DC-4/DC-5).
-final class LastFileStore {
+nonisolated final class LastFileStore {
 
     static let defaultBookmarkKey = "Markus_v3.LastFileStore.bookmarkData"
     static let defaultPathKey = "Markus_v3.LastFileStore.path"

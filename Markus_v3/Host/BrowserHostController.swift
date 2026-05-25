@@ -47,6 +47,23 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     var willPresentInitialContent: ((BrowserHostController, UIScene.ConnectionOptions) -> Void)?
 
     private var currentSaveBridge: MarkdownDocumentSaveBridge?
+    private var currentPresentedNav: UINavigationController?
+    private var edgeSwipeRecognizer: UIScreenEdgePanGestureRecognizer?
+
+    /// Closure run once on the first `viewDidAppear`, before any other
+    /// activity, to give the resume decision a fully-on-screen host to
+    /// present onto. Set by `SceneDelegate`; cleared after firing.
+    var initialResumeAction: ((BrowserHostController) -> Void)?
+    private var initialResumeFired = false
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !initialResumeFired {
+            initialResumeFired = true
+            initialResumeAction?(self)
+            initialResumeAction = nil
+        }
+    }
 
     init() {
         super.init(forOpening: MarkdownDocument.readableContentTypes)
@@ -63,35 +80,111 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     /// Asks the host to present the file at `url` in the editor. Used by
     /// the browser pick callback, the resume branch (T-006), and the
     /// create-document handler (T-007). Reuses the unchanged
-    /// `DocumentView` as the editor surface (hard-seam: `MarkdownDocument`
-    /// and the rendered/raw mode-switch are not touched).
+    /// `DocumentView` as the editor surface.
     ///
     /// - Parameters:
     ///   - url: the file to open. Must be a `.md`/`.markdown` file already
     ///     resolvable in the current security scope.
     ///   - initialMode: hint for the editor's first mode. The walking
     ///     skeleton already chooses an initial mode in `.onAppear` (large
-    ///     file → `.raw`); this parameter is reserved for T-007 to request
-    ///     `.raw` for newly created files (design seam, no mode-switch
-    ///     change).
+    ///     file → `.raw`); the create path uses this to request `.raw` for
+    ///     newly created files (DC-8).
+    ///   - focusEditorOnAppear: when true (create flow) the editor's text
+    ///     view becomes first responder on first appearance, so the
+    ///     keyboard is active (BR-12 / DC-8).
+    ///   - deferUntilFirstNonEmpty: when true (create flow) the save bridge
+    ///     does not write the file to disk until the user types at least
+    ///     one character (BR-13 / DC-9).
+    ///   - preloadedDocument: when non-nil, the host uses this in-memory
+    ///     document instead of reading file contents from `url`. Used by
+    ///     the create flow (the new file does not yet exist on disk).
     ///   - animated: passed to `present`. Default true.
     @MainActor
-    func presentDocument(at url: URL, initialMode: DocumentMode? = nil, animated: Bool = true) {
-        guard let document = Self.loadMarkdownDocument(at: url) else {
+    func presentDocument(at url: URL,
+                         initialMode: DocumentMode? = nil,
+                         focusEditorOnAppear: Bool = false,
+                         deferUntilFirstNonEmpty: Bool = false,
+                         preloadedDocument: MarkdownDocument? = nil,
+                         animated: Bool = true) {
+        let document: MarkdownDocument
+        if let preloadedDocument {
+            document = preloadedDocument
+        } else if let loaded = Self.loadMarkdownDocument(at: url) {
+            document = loaded
+        } else {
             return
         }
 
-        let bridge = MarkdownDocumentSaveBridge(document: document, url: url)
+        let bridge = MarkdownDocumentSaveBridge(
+            document: document,
+            url: url,
+            deferUntilFirstNonEmpty: deferUntilFirstNonEmpty
+        )
+        bridge.onFirstPersist = { [weak self] persistedURL in
+            // For a deferred-write create, the file becoming real on disk
+            // for the first time also makes it the new last-opened
+            // reference (DC-10 / BR-15). Funnel through the same
+            // didOpenDocument hook T-008 binds to LastFileStore.record.
+            self?.didOpenDocument?(persistedURL)
+        }
         self.currentSaveBridge = bridge
 
-        let editor = DocumentView(document: document, fileURL: url)
+        let onBack: () -> Void = { [weak self] in
+            self?.dismissPresentedEditor()
+        }
+
+        let editor = DocumentView(
+            document: document,
+            fileURL: url,
+            initialMode: initialMode,
+            focusEditorOnAppear: focusEditorOnAppear,
+            onBack: onBack
+        )
         let host = UIHostingController(rootView: editor)
         let nav = UINavigationController(rootViewController: host)
         nav.modalPresentationStyle = .fullScreen
+        self.currentPresentedNav = nav
+
+        installEdgeSwipeDismiss(on: nav.view)
 
         present(nav, animated: animated) { [weak self] in
-            self?.didOpenDocument?(url)
+            // For pre-existing files (no deferred-write), the open path
+            // records-on-open via didOpenDocument. For deferred-write
+            // creates, didOpenDocument fires later (via onFirstPersist)
+            // when the file first hits disk.
+            if !deferUntilFirstNonEmpty {
+                self?.didOpenDocument?(url)
+            }
         }
+    }
+
+    @MainActor
+    private func dismissPresentedEditor() {
+        currentSaveBridge?.saveSynchronously()
+        currentSaveBridge = nil
+        currentPresentedNav = nil
+        edgeSwipeRecognizer = nil
+        dismiss(animated: true)
+    }
+
+    /// Installs a screen-edge pan recognizer on the presented editor's view
+    /// to emulate the "interactive pop" gesture for the modal-presented
+    /// editor (DC-14). `UINavigationController`'s built-in
+    /// `interactivePopGestureRecognizer` only fires when the stack has more
+    /// than one view controller; here the editor is the root, so we
+    /// supplement with a dedicated edge-pan that triggers dismissal.
+    @MainActor
+    private func installEdgeSwipeDismiss(on view: UIView) {
+        let pan = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleEdgeSwipeDismiss(_:)))
+        pan.edges = .left
+        view.addGestureRecognizer(pan)
+        self.edgeSwipeRecognizer = pan
+    }
+
+    @MainActor
+    @objc private func handleEdgeSwipeDismiss(_ recognizer: UIScreenEdgePanGestureRecognizer) {
+        guard recognizer.state == .ended || recognizer.state == .recognized else { return }
+        dismissPresentedEditor()
     }
 
     /// Flush any in-flight saves for the currently presented document.

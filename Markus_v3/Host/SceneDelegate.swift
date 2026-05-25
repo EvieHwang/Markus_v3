@@ -23,21 +23,54 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// having to thread the delegate through SwiftUI.
     static weak var activeHost: BrowserHostController?
 
+    private var openObserver: DocumentOpenObserver?
+    private var createHandler: CreateDocumentHandler?
+
     func scene(_ scene: UIScene,
                willConnectTo session: UISceneSession,
                options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
+        // Apply UI-test launch-state overrides BEFORE constructing the
+        // host so the resume decision below sees the intended store state
+        // (T-006 deterministic-launch contract).
+        LaunchResumeBranch.applyTestOverrides(ProcessInfo.processInfo.arguments)
+
         let window = UIWindow(windowScene: windowScene)
         let host = BrowserHostController()
         Self.activeHost = host
+
+        // Wire Wave-4 components onto the host's exposed hooks.
+        let openObserver = DocumentOpenObserver(host: host)
+        openObserver.install()
+        self.openObserver = openObserver
+
+        let createHandler = CreateDocumentHandler(host: host)
+        createHandler.install()
+        self.createHandler = createHandler
+
         window.rootViewController = host
         self.window = window
         window.makeKeyAndVisible()
 
-        // T-006 hook: opportunity to make the resume decision before the
-        // browser becomes the visible top view controller (DC-3). Default
-        // is a no-op, so the browser is the natural landing.
+        // T-006 resume decision: defer to the host's first
+        // `viewDidAppear` so the present has a fully-on-screen presenter.
+        // For zero-flash semantics (DC-3) we want this to happen at the
+        // earliest point the host can actually present a modal — earlier
+        // call sites (synchronously from `willConnectTo`, or via a single
+        // `DispatchQueue.main.async`) race window-becomeKeyAndVisible and
+        // silently no-op the `present(_:animated:)`. If no resolvable
+        // reference exists the closure is a no-op (browser is the
+        // natural landing, DC-4). The build-time DC-3 escalation trigger
+        // recorded in design.md applies if even this is observed to
+        // flash the browser.
+        host.initialResumeAction = { host in
+            LaunchResumeBranch.resume(into: host)
+        }
+
+        // Optional external hook (kept for future T-006 variants); fired
+        // after the standard resume decision so a custom override can
+        // run on top.
         host.willPresentInitialContent?(host, connectionOptions)
     }
 

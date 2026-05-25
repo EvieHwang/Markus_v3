@@ -4,6 +4,9 @@ import UIKit
 struct DocumentView: View {
     @ObservedObject var document: MarkdownDocument
     let fileURL: URL?
+    let initialMode: DocumentMode?
+    let focusEditorOnAppear: Bool
+    let onBack: (() -> Void)?
 
     @State private var mode: DocumentMode = .rendered
     @State private var didInitMode = false
@@ -24,9 +27,16 @@ struct DocumentView: View {
         self.init(document: configuration.document, fileURL: configuration.fileURL)
     }
 
-    init(document: MarkdownDocument, fileURL: URL? = nil) {
+    init(document: MarkdownDocument,
+         fileURL: URL? = nil,
+         initialMode: DocumentMode? = nil,
+         focusEditorOnAppear: Bool = false,
+         onBack: (() -> Void)? = nil) {
         self.document = document
         self.fileURL = fileURL
+        self.initialMode = initialMode
+        self.focusEditorOnAppear = focusEditorOnAppear
+        self.onBack = onBack
         let doc = document
         self._coordinator = State(wrappedValue: AutosaveCoordinator(onIdle: { [weak doc] in
             doc?.markDirty()
@@ -53,7 +63,8 @@ struct DocumentView: View {
                         document: document,
                         coordinator: coordinator,
                         scrollState: rawScrollState,
-                        pendingScrollAnchor: $pendingRawAnchor
+                        pendingScrollAnchor: $pendingRawAnchor,
+                        focusOnAppear: focusEditorOnAppear
                     )
                 }
             }
@@ -73,7 +84,11 @@ struct DocumentView: View {
         }
         .onAppear {
             if !didInitMode {
-                mode = document.initialByteSize >= Self.largeFileByteThreshold ? .raw : .rendered
+                if let initialMode {
+                    mode = initialMode
+                } else {
+                    mode = document.initialByteSize >= Self.largeFileByteThreshold ? .raw : .rendered
+                }
                 didInitMode = true
             }
             document.undoManager = undoManager
@@ -92,6 +107,18 @@ struct DocumentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        if let onBack {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    triggerSave()
+                    onBack()
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .accessibilityLabel("Back")
+                .accessibilityIdentifier("Back")
+            }
+        }
         if mode == .raw {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

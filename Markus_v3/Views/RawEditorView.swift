@@ -5,13 +5,27 @@ struct RawEditorView: View {
     let coordinator: AutosaveCoordinator
     let scrollState: RawEditorScrollState
     @Binding var pendingScrollAnchor: ScrollAnchor?
+    let focusOnAppear: Bool
+
+    init(document: MarkdownDocument,
+         coordinator: AutosaveCoordinator,
+         scrollState: RawEditorScrollState,
+         pendingScrollAnchor: Binding<ScrollAnchor?>,
+         focusOnAppear: Bool = false) {
+        self.document = document
+        self.coordinator = coordinator
+        self.scrollState = scrollState
+        self._pendingScrollAnchor = pendingScrollAnchor
+        self.focusOnAppear = focusOnAppear
+    }
 
     var body: some View {
         MarkdownTextViewBridge(
             document: document,
             autosave: coordinator,
             scrollState: scrollState,
-            pendingScrollAnchor: $pendingScrollAnchor
+            pendingScrollAnchor: $pendingScrollAnchor,
+            focusOnAppear: focusOnAppear
         )
     }
 

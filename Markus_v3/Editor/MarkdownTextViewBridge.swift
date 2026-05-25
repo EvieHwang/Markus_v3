@@ -6,13 +6,27 @@ struct MarkdownTextViewBridge: View {
     let autosave: AutosaveCoordinator
     let scrollState: RawEditorScrollState
     @Binding var pendingScrollAnchor: ScrollAnchor?
+    let focusOnAppear: Bool
+
+    init(document: MarkdownDocument,
+         autosave: AutosaveCoordinator,
+         scrollState: RawEditorScrollState,
+         pendingScrollAnchor: Binding<ScrollAnchor?>,
+         focusOnAppear: Bool = false) {
+        self.document = document
+        self.autosave = autosave
+        self.scrollState = scrollState
+        self._pendingScrollAnchor = pendingScrollAnchor
+        self.focusOnAppear = focusOnAppear
+    }
 
     var body: some View {
         Representable(
             document: document,
             autosave: autosave,
             scrollState: scrollState,
-            pendingScrollAnchor: $pendingScrollAnchor
+            pendingScrollAnchor: $pendingScrollAnchor,
+            focusOnAppear: focusOnAppear
         )
         .opacity(pendingScrollAnchor == nil ? 1 : 0)
         .animation(.easeIn(duration: 0.15), value: pendingScrollAnchor == nil)
@@ -23,6 +37,7 @@ struct MarkdownTextViewBridge: View {
         let autosave: AutosaveCoordinator
         let scrollState: RawEditorScrollState
         @Binding var pendingScrollAnchor: ScrollAnchor?
+        let focusOnAppear: Bool
 
         func makeCoordinator() -> Coordinator {
             Coordinator(parent: self)
@@ -32,6 +47,14 @@ struct MarkdownTextViewBridge: View {
             let tv = MarkdownEditorTextView()
             tv.delegate = context.coordinator
             tv.text = document.text
+            if focusOnAppear {
+                // Defer to next runloop so the view is in the window before becoming
+                // first responder; otherwise iOS sometimes silently drops the focus
+                // request.
+                DispatchQueue.main.async { [weak tv] in
+                    tv?.becomeFirstResponder()
+                }
+            }
             return tv
         }
 
