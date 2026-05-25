@@ -203,3 +203,17 @@ The following requirements cannot be fully verified by automated tests as writte
 | GF-4 | Selection active → anchor from scroll, not selection | Requires live UITextView with active selection | Design-level guarantee (anchor reads `rawScrollState.currentFractionalY`, not selection) |
 
 All requirements that could not be covered by automated tests have been surfaced above. No requirement was silently omitted. The 8 acceptance-criterion stories are covered by 54 unit/integration test cases and 16 UI test stubs.
+
+---
+
+## Task → test mapping (DAG task IDs)
+
+| Task | Description | Tests |
+|------|-------------|-------|
+| T-001 | `ScrollAnchor` value type | `ScrollAnchorTests` (all), `ScrollAnchorArithmeticTests` (all) |
+| T-002 | `RawEditorScrollState` observable object | `RawEditorScrollStateTests` (all) |
+| T-003 | `ListContinuationHandler` pure value type | `ListContinuationHandlerUnorderedTests` (all), `ListContinuationHandlerOrderedTests` (all), `ListContinuationHandlerNonListTests` (all) |
+| T-004 | `MarkdownEditorTextView` UITextView subclass | `SmartQuoteSuppressionTests` → `smartQuotesDisabled`, `smartDashesDisabled`, `spellCheckEnabled`, `autocorrectEnabled` |
+| T-005 | `MarkdownTextViewBridge` UIViewRepresentable | `ScrollAnchorLifecycleTests` (all), `UITextViewMigrationTests` → `documentStoresFullSource`, `emptyDocumentNocrash`, `unicodePreserved`, `markDirtyDoesNotMutateText` |
+| T-006 | Replace `RawEditorView` with `MarkdownTextViewBridge` | `UITextViewMigrationTests` (full suite), `SmartQuoteSuppressionTests` (full suite), `EditorFoundationUITests` → `testAppLaunchesSuccessfully`, `testAppLaunchesToDocumentBrowser` |
+| T-007 | `DocumentView` anchor wiring + `RenderedView` tap/anchor extension | `ScrollAnchorArithmeticTests` (full suite), `ScrollAnchorLifecycleTests` (full suite), `EditorFoundationUITests` → `testEyeIconVisibleInRawMode`, `testEyeIconTapReturnsToRendered`, `testRawToRenderedSwitchNoVisibleJump`, `testRenderedToRawSwitchNoVisibleJump`, `testRawToRenderedPreservesScrollPosition`, `testTapAtMidpointEntersRawModeNearTapPosition`, `testRapidModeSwitchingDoesNotCrash`, `testModeSwitchOnEmptyDocumentNocrash` |
