@@ -3,10 +3,10 @@
 Human-readable coverage summary mapping each behavioral requirement (BR-*) and
 each design seam / constraint (DC-*) to the test(s) that verify it.
 
-**Note:** Task → test mapping (DAG task IDs) is added in the NEXT stage after the
-DAG is committed. This file currently maps requirement/seam → test name only.
-Tests intentionally fail (missing-symbol / ImportError, or `XCTSkip`) until each
-task is implemented.
+**Note:** The requirement/seam → test mapping below is produced by `/tests`. The
+authoritative **task → test mapping** (DAG task IDs) is applied by `/dag` and lives
+in the final section of this file. Tests intentionally fail (missing-symbol /
+ImportError, or `XCTSkip`) until each task is implemented.
 
 Test files:
 - `tests/unit/ExternalChangeTests.swift` — Swift Testing (`@Test`/`#expect`/`#require`), logic-level seams (the equality gate, classification, settle gate, apply-edge re-validation, suspension latch, foreground reconciliation, conflict resolution end-states).
@@ -222,6 +222,33 @@ executable logic-level test, not gaps in coverage).
 
 ## Task → test mapping (DAG task IDs)
 
-*Authoritative mapping is filled in by the NEXT stage, after `dag.md` is committed.
-This section is intentionally left empty here — `/tests` produces requirement/seam →
-test mapping only; `/dag` applies the task → test labels.*
+*Authoritative task → test mapping, applied by `/dag` after `dag.md` was committed.
+Each `dag.md` task maps to the test(s) whose acceptance conditions it satisfies. A
+task's tests intentionally fail (missing-symbol / `XCTSkip`) until that task is
+implemented; the build agent's first action per task is to confirm its tests fail
+in the expected way, then implement until they pass. `XCTSkip` stubs stay skipped
+(executable) and are paired with a build-agent on-disk/fixture verification note in
+the Untestable section above.*
+
+| Task | Component (DC) | Tests verifying its acceptance condition |
+|------|----------------|------------------------------------------|
+| T-001 | `ContentEqualityGate` (DC-11) | `ContentEqualityGateTests`: `byteIdenticalEqual`, `crlfNormalizedEqual`, `bareCrNormalizedEqual`, `emptyVsNonEmptyMaterial`, `realTextChangeMaterial`, `trailingWhitespaceIsMaterial`, `emptyEqualsEmpty` |
+| T-002 | `LastKnownDiskState` (DC-9/DC-10) | `LastKnownDiskStateTests`: `equalIsClean`, `divergedIsDirty`, `revertedToDiskIsClean`, `newlineOnlyIsClean`, `resetMakesClean` |
+| T-003 | `ConflictResolution` (DC-13) | `ConflictResolutionTests`: `keepMineWritesBuffer`, `keepTheirsAdoptsDisk`, `discardMineAdoptsDisk`, `keepTheirsEqualsDiscardMine`, `exactlyThreeOptions` |
+| T-004 | `ChangeClassifier` (DC-4) | `ChangeClassifierTests`: `cleanBufferAbsorbs`, `contentIdenticalDirtyAbsorbs`, `newlineIdenticalDirtyAbsorbs`, `dirtyMaterialIsCollision`, `emptiedDiskIsCollision`, `emptiedDiskWithDirtyBufferIsCollision`, `relocatedMatchingIsMoved`, `absentIsDeleted`, `movedIsNeverDeleted`, `movePlusMaterialChangeIsCollision`, `exactlyOneOutcome` |
+| T-005 | `SettleGate` (DC-6/7/8) | `SettleGateTests`: `suppressedWithinWindowAfterSave`, `suppressedWithinWindowAfterCreate`, `suppressedWithinWindowAfterOpen`, `notSuppressedAfterWindow`, `inFlightSyncSuppressesPastWindow`, `inFlightSyncSuppressesAlone`, `triggerResetsWindow`, `suppressionDelaysNotDiscards` |
+| T-006 | `ApplyEdgeRevalidation` (DC-21) + `SaveSuspensionLatch` (DC-22) | `ApplyEdgeRevalidationTests`: `unchangedBufferAbsorbsSilently`, `typedDuringReadMaterialBecomesCollision`, `typedDuringReadContentIdenticalAbsorbs`, `typedCharactersNeverSilentlyLost`; `SaveSuspensionLatchTests`: `collisionClassificationSuspends`, `deletionClassificationSuspends`, `queuedSaveRefusedInGap`, `explicitResolutionLifts`, `systemDismissalDoesNotLift`, `secondSignalDoesNotStack` |
+| T-007 | Change detector (DC-1/2/3/5, absorb DC-12) | `ExternalChangeUITests`: `testCleanBufferExternalChangeIsSilent`, `testCleanAbsorbAdoptsNewContent`, `testCleanAbsorbPreservesRawMode`, `testContentIdenticalChangeIsSilentAndNonDisruptive`, `testNormalCreateTypeSaveProducesNoConflictSurfaces`, `testEditSaveLoopProducesNoConflictSheets`, `testChangeToNonOpenFileProducesNoUI`; `testInFlightSyncSuppressesSheet` (`XCTSkip` — DC-3/DC-7 busy fixture). *Detector logic seams are also exercised by the T-004/T-005/T-006 suites it composes; this row lists the scene-level tests that prove the live detector.* |
+| T-008 | Conflict sheet (DC-14, DC-15) | `ExternalChangeUITests`: `testTrueCollisionShowsThreeOptionSheet`, `testSecondCollisionDoesNotStackSheet`, `testKeepMineDismissesAndResumesRawMode`, `testKeepTheirsAdoptsExternalContent`, `testDiscardMineDismissesSheet`; `testKeepMineWritesBufferToDisk` (`XCTSkip` — on-disk read-back; logic-level `ConflictResolutionTests.keepMineWritesBuffer` under T-003) |
+| T-009 | Deletion banner + Save As + follow-on-move (DC-16/17/18/19/20) | `ExternalChangeUITests`: `testRenameAloneShowsNoSheetOrBanner`, `testRenamePropagatesToTitle`, `testDeletionShowsBannerAndKeepsBuffer`, `testDeleteThenReappearWithinWindowIsMoveNoBanner`, `testDismissingBannerPreservesBuffer`; `testMoveRetargetsSaveAndResume` (`XCTSkip` — path inspection + relaunch), `testSaveAsContinuesSessionAtNewLocation` (`XCTSkip` — picker + read-back) |
+| T-010 | `ForegroundReconciler` (DC-23) + lifecycle + failure-path reuse | `ForegroundReconcilerTests`: `stillDivergentRePresents`, `nowIdenticalLifts`, `reappearedDeletionLifts`, `stillAbsentRePresents`, `reconciliationIsTotal`; `ExternalChangeUITests`: `testBackgroundingDoesNotAutoResolveSheet`, `testBufferPreservedAcrossBackgroundWithPendingSheet`, `testInvalidUtf8UsesAlertNotConflictSheet`; `testReconcileLiftsWhenDiskNowAgrees` (`XCTSkip` — disk-agreement-during-background), `testSaveFailureDuringKeepMineReusesAlert` (`XCTSkip` — forced save failure) |
+
+**Coverage check (task → test):** Every task T-001 … T-010 maps to at least one
+test. Every executable test in `tests/unit/ExternalChangeTests.swift` and
+`tests/ui/ExternalChangeUITests.swift` is assigned to exactly one owning task (the
+task whose acceptance condition it verifies); `XCTSkip` stubs are assigned to the
+task that delivers the behavior they would observe end-to-end and are paired with an
+executable logic-level test under an earlier task where noted. No task is left
+without coverage and no test is left unmapped. BR-10 remains a design-review
+constraint (no behavioral test of its own) whose observable proxy is enforced by the
+T-004 classifier suite and the T-007 single-response UI checks.
