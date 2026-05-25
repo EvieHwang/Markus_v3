@@ -2,32 +2,52 @@ import Testing
 import SwiftUI
 @testable import Markus_v3
 
-@Suite("RenderedView — T-007")
+@Suite("RenderedView — tap and anchor surface")
 struct RenderedViewTests {
 
     @MainActor
     @Test("Empty source produces an empty rendered view (no crash)")
     func testEmptySourceProducesEmptyView() {
-        let _ = RenderedView(text: "", onTap: {})
+        let _ = RenderedView(text: "", onTap: { _ in })
         #expect(Bool(true))
     }
 
     @MainActor
-    @Test("Tap gesture switches mode to raw")
-    func testTapGestureSwitchesMode() {
+    @Test("Tap gesture fires onTap callback")
+    func testTapGestureFiresCallback() {
         let tracker = TapTracker()
-        let view = RenderedView(text: "# Hi", onTap: { tracker.fire() })
+        let view = RenderedView(text: "# Hi", onTap: { _ in tracker.fire() })
         view.simulateTap()
         #expect(tracker.fired)
     }
 
     @MainActor
-    @Test("Tap on a link switches mode (does NOT follow the link)")
-    func testLinkTapSwitchesMode() {
+    @Test("Link tap fires onTap callback (does NOT follow the link)")
+    func testLinkTapFiresCallback() {
         let tracker = TapTracker()
-        let view = RenderedView(text: "[Apple](https://apple.com)", onTap: { tracker.fire() })
+        let view = RenderedView(text: "[Apple](https://apple.com)", onTap: { _ in tracker.fire() })
         view.simulateLinkTap(URL(string: "https://apple.com")!)
         #expect(tracker.fired)
+    }
+
+    @MainActor
+    @Test("Link tap reports no tap location (nil fractionalY)")
+    func testLinkTapReportsNilFractional() {
+        var receivedY: Double?? = nil
+        let view = RenderedView(text: "[A](https://a.com)", onTap: { receivedY = $0 })
+        view.simulateLinkTap(URL(string: "https://a.com")!)
+        #expect(receivedY == .some(.none))
+    }
+
+    @MainActor
+    @Test("Constructible with a non-nil pending scroll anchor")
+    func testConstructibleWithPendingAnchor() {
+        let _ = RenderedView(
+            text: "# Hi",
+            onTap: { _ in },
+            pendingScrollAnchor: .constant(ScrollAnchor(fractionalY: 0.5))
+        )
+        #expect(Bool(true))
     }
 
     @MainActor
@@ -46,9 +66,7 @@ struct RenderedViewTests {
 
         ~~strike~~ and <https://apple.com>
         """
-        let _ = RenderedView(text: gfm, onTap: {})
-        // Visible-render assertion is covered by the E2E flow tests at T-010 time;
-        // unit scope here just confirms construction.
+        let _ = RenderedView(text: gfm, onTap: { _ in })
         #expect(Bool(true))
     }
 }

@@ -11,6 +11,9 @@ struct DocumentView: View {
     @State private var toast: String?
     @State private var coordinator: AutosaveCoordinator
     @State private var saveStatusObserver = SaveStatusObserver()
+    @StateObject private var rawScrollState = RawEditorScrollState()
+    @State private var pendingRawAnchor: ScrollAnchor?
+    @State private var pendingRenderedAnchor: ScrollAnchor?
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.undoManager) private var undoManager
@@ -37,9 +40,21 @@ struct DocumentView: View {
             } else {
                 switch mode {
                 case .rendered:
-                    RenderedView(text: document.text, onTap: { switchTo(.rendered, target: .raw) })
+                    RenderedView(
+                        text: document.text,
+                        onTap: { fractionalY in
+                            pendingRawAnchor = ScrollAnchor(fractionalY: fractionalY ?? 0)
+                            switchTo(.rendered, target: .raw)
+                        },
+                        pendingScrollAnchor: $pendingRenderedAnchor
+                    )
                 case .raw:
-                    RawEditorView(document: document, coordinator: coordinator)
+                    RawEditorView(
+                        document: document,
+                        coordinator: coordinator,
+                        scrollState: rawScrollState,
+                        pendingScrollAnchor: $pendingRawAnchor
+                    )
                 }
             }
         }
@@ -80,6 +95,7 @@ struct DocumentView: View {
         if mode == .raw {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    pendingRenderedAnchor = ScrollAnchor(fractionalY: rawScrollState.currentFractionalY)
                     triggerSave()
                     mode = .rendered
                 } label: {
