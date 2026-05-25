@@ -152,10 +152,10 @@ The name chosen by BR-9 is the name written at persist time; if no concurrent ex
 
 ## Architectural resolution needed
 
-The following genuinely require an architectural decision and are flagged for Stage 2 (design):
+The two architecture-flagged questions below were resolved in `design.md` without requiring any change to the requirement text:
 
-1. **Last-opened-reference retention policy (BR-20).** When resolution of the stored reference fails on a launch, design must decide whether to (a) permanently clear the reference (so the next launch goes to the browser) or (b) retain it for a later retry (sync placeholder may become reachable again later). BR-5's silent-fallback behavior holds either way, but the retention choice affects subsequent launches and must be specified so tests can assert it.
+1. **Last-opened-reference retention policy (BR-20).** Resolved in design.md DC-5 as RETAIN-on-failure, REPLACE-on-success — a failed resolution does not clear the reference; it is only replaced when a different file is successfully opened.
 
-2. **"Reachable and writable" determination for the create target (BR-10/BR-11/BR-21).** Design must specify how writability of the last-opened directory is determined at create time (e.g. probe vs. attempt-and-fall-back) so the fallback in BR-11/BR-21 is testable without ambiguity about timing.
+2. **"Reachable and writable" determination for the create target (BR-10/BR-11/BR-21).** Resolved in design.md DC-12 as a pre-write probe (decide the directory at create time via a side-effect-free writability check), not attempt-and-fall-back.
 
-These are limited and do not block the rest of the requirements, which are stable.
+**Requirements stable — no architectural feedback to incorporate.**
