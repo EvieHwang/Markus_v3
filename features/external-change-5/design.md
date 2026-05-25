@@ -8,7 +8,13 @@
 - (3) move-vs-deletion disambiguation timing → §Presence Disambiguation, DC-16
 - (4) reconciliation of the new detector with `SaveStatusObserver` → §Two Observers, DC-3
 
-None of the four resolutions required changing any requirement *text* — they pin values and relationships the requirements deliberately deferred. Accordingly the requirements bottom marker has been flipped to "Requirements stable — no architectural feedback to incorporate" as part of this step.
+None of the four resolutions required changing any requirement *text* — they pin values and relationships the requirements deliberately deferred.
+
+**Revision-pass resolution (this step).** This pass also resolves the two architecture-flagged apply-edge items in `requirements.md`:
+- (5) re-validation of the absorb/collision classification at the apply edge → §Apply-edge integrity, DC-21 (addresses adversarial F-001 architecture portion, anchors BR-19).
+- (6) autosave suspension keyed to classification rather than presentation → §Apply-edge integrity, DC-22, with DC-14/DC-16 tightened (addresses adversarial F-002 architecture portion, anchors BR-20).
+
+Neither item required changing any requirement *text* — BR-19/BR-20 already fix the behavior; this pass supplies the mechanism that makes them verifiable. It also resolves the adversarial **prescription feedback** by restating the flagged implementation names and the debounce value as the behavioral properties they protect (see §Prescription-feedback resolution). Accordingly the requirements bottom marker remains "Requirements stable — no architectural feedback to incorporate."
 
 ---
 
@@ -85,11 +91,11 @@ While the window is open, the detector suppresses classification of *change* and
 
 The editor maps detector outcomes to surfaces. The three pre-existing alert paths (`saveFailed`, `invalidEncoding`, `iCloudDownloadFailed`) are unchanged and remain the response for their own failure modes (BR-13, BR-14). *Extends seam: `DocumentView` + `ActiveAlert`.*
 
-**DC-14 — Conflict sheet appears iff true collision.** A modal three-option sheet (Keep Mine / Keep Theirs / Discard Mine) appears if and only if the detector emits `collision`: dirty buffer AND on-disk content materially differs AND settled (BR-4.1). It offers exactly those three options and no "merge" (BR-4.2, OOS-2). While it is up, neither side overwrites the document without the user's tap (BR-4.3): the save bridge's autosave does not write over the disagreeing disk content, and the detector does not adopt disk into the buffer, until the user chooses. At most one sheet is up at a time (BR-4.4, DC-5).
+**DC-14 — Conflict sheet appears iff true collision.** A modal three-option sheet (Keep Mine / Keep Theirs / Discard Mine) appears if and only if the detector emits `collision`: dirty buffer AND on-disk content materially differs AND settled (BR-4.1). It offers exactly those three options and no "merge" (BR-4.2, OOS-2). From classification onward, neither side overwrites the document without the user's tap (BR-4.3): autosave/save-back is suspended from the instant `collision` is classified — not merely while the sheet is on screen — per DC-22, and the detector does not adopt disk into the buffer, until the user chooses. At most one sheet is up at a time (BR-4.4, DC-5).
 
 **DC-15 — Sheet survives backgrounding without auto-resolving.** If the app is backgrounded while the sheet (or banner) is up, the pending choice is not auto-resolved in a way that loses the buffer; on return the user can still complete the choice, and if the system dismissed the surface the buffer is preserved in memory (BR-15). The property: backgrounding never silently picks a winner.
 
-**DC-16 — Deletion banner appears only after presence disambiguation (DEFERRED QUESTION 3).** A "file gone" signal does not immediately produce a deletion banner. The detector waits a bounded **2-second** disambiguation interval (matching the settle window, DC-6) to see whether the file reappears at a new resolvable location via the follow-on-move path. If it reappears within that interval, the outcome is `moved` (BR-8) and **no** deletion banner shows (BR-9.5, BR-16). If the file is still genuinely absent after the interval, the outcome is `deleted` and the non-modal banner appears offering Save As (BR-9.1). Rationale for 2s and for reusing the settle value: iCloud commonly expresses a move as a delete-then-recreate; 2s covers that round-trip while keeping a true deletion's banner prompt. The banner does not discard the buffer (BR-9.2), the app does not silently recreate the deleted file on the next autosave (BR-9.3, the save bridge suspends writes to the vanished path while the banner is up), and dismissing the banner without Save As still preserves the buffer in memory (BR-9.6).
+**DC-16 — Deletion banner appears only after presence disambiguation (DEFERRED QUESTION 3).** A "file gone" signal does not immediately produce a deletion banner. The detector waits a bounded **2-second** disambiguation interval (matching the settle window, DC-6) to see whether the file reappears at a new resolvable location via the follow-on-move path. If it reappears within that interval, the outcome is `moved` (BR-8) and **no** deletion banner shows (BR-9.5, BR-16). If the file is still genuinely absent after the interval, the outcome is `deleted` and the non-modal banner appears offering Save As (BR-9.1). Rationale for 2s and for reusing the settle value: iCloud commonly expresses a move as a delete-then-recreate; 2s covers that round-trip while keeping a true deletion's banner prompt. The banner does not discard the buffer (BR-9.2), the app does not silently recreate the deleted file (BR-9.3): save-back to the vanished path is suspended from the instant `deleted` is classified, including the gap before the banner appears, per DC-22 — and dismissing the banner without Save As still preserves the buffer in memory (BR-9.6).
 
 **DC-17 — Save As continues the session at the new location.** Choosing Save As writes the current buffer to a user-chosen new location; on success the editing session continues against that new location (it becomes the followed location, the save bridge and detector retarget to it, and the resume reference is updated), last-known-disk is reset to the just-written content, and the banner dismisses (BR-9.4). If the Save As write fails, the existing save-failure alert path is used and the banner is not falsely cleared (BR-14).
 
@@ -100,6 +106,30 @@ The editor maps detector outcomes to surfaces. The three pre-existing alert path
 **DC-19 — Moves are followed transparently.** When the open file is moved or renamed on disk, the detector emits `moved`: the followed location updates to the new location, subsequent saves write there and do not recreate a file at the old path (BR-8.2), the editor's displayed title reflects a rename (it is derived from the followed location's last path component, BR-8.3), and the resume reference is updated to the new location (BR-8.5). A move alone produces neither a sheet nor a banner (BR-8.1). *Reuses seam: `LastFileStore.recordLastOpened` for the resume-reference update — the same hook the host already calls on open.*
 
 **DC-20 — A move carrying a content change is still gated.** If a move arrives together with a content change, the collision rules (DC-11/DC-14) are applied to the buffer against the on-disk content *at the new location*; the move does not suppress a genuine collision (BR-8.4). The property: relocating a file is never a way to smuggle an overwrite past the user.
+
+---
+
+## Apply-edge integrity (concurrency at the moment of action)
+
+*These two constraints close the two HIGH adversarial findings. Both are stated as observable end-state properties — what the user can never lose, and what the disk can never gain — independent of which actor or queue the work runs on. They constrain the **moment an outcome is applied**, not how detection samples state. Addresses adversarial F-001, F-002.*
+
+**DC-21 — An outcome is re-validated against the live buffer before any mutation; an absorb never overwrites edits made after the read. (Addresses adversarial F-001; anchors BR-19.)** A classification (`absorb` / `collision`) is derived from the buffer as it stood when the coordinated read began, but it is never *applied* against that historical snapshot. Before any buffer mutation occurs, the outcome is re-derived against the buffer as it stands at the instant of application. The behavioral properties:
+
+- If the buffer was clean at read time but the user typed before the outcome is applied, the clean-buffer absorb (DC-12, BR-1) does **not** run over those edits. The change is re-evaluated against the now-dirty buffer using the standard equality gate (DC-11): content-identical → silent absorb (BR-2), otherwise → `collision` sheet. The just-typed characters are never silently discarded (BR-19.1, BR-19.2).
+- The content-identical absorb path is likewise compared against the buffer *as it stands at application*, not at read time; if it diverged in the interim it is re-evaluated rather than applied as a stale no-op (BR-19.3).
+- No external-change resolution (absorb, Keep Theirs, Discard Mine) ever drops a character the user typed after the on-disk content used for that resolution was read: every such character is either preserved or is the subject of an explicit user choice (BR-19.2).
+- Re-validation adds no prompt to the safe path: when the buffer is genuinely unchanged since the read — the common case — absorption proceeds silently exactly as DC-12 (BR-19.4). The property is "no silent loss," not "more sheets."
+
+The observable test surface: stage a clean buffer, begin an external change, mutate the buffer before the outcome lands, and assert the typed edits survive (preserved or surfaced as a collision) — never silently replaced.
+
+**DC-22 — Save-back is suspended from the instant a collision or deletion is *classified*, not from when its surface appears. (Addresses adversarial F-002; tightens DC-14/DC-16, anchors BR-20.)** The mutual exclusion between save-back and the detector is keyed to the *classified outcome*, not to the presence of a sheet or banner on screen. The behavioral properties:
+
+- From the moment the detector classifies `collision` (or `deleted`) for the open document until the user resolves it, no autosave or save-back writes the buffer to the followed (or vanished) location. The disagreeing on-disk content the collision is about stays intact and recoverable via Keep Theirs / Discard Mine (BR-20.1).
+- The suspension covers the latency gap between classification and surface presentation: a save that was queued or idle-debounced before classification does not fire during that gap and overwrite the external content (BR-20.2). This closes the window the prior "while the sheet is up" scoping left open.
+- On a classified deletion, no autosave recreates the file at the vanished path during the gap before the banner appears (BR-20.3, strengthening BR-9.3 from "the next autosave" to "from classification").
+- Suspension lifts only on explicit resolution: Keep Mine performs the single deliberate write (DC-13, BR-5); Keep Theirs / Discard Mine / Save As perform no write that clobbers the content the collision was about; normal autosave resumes only after the outcome is resolved (BR-20.4).
+
+The observable test surface: classify a collision, then drive the autosave trigger before the sheet is presented, and assert the disagreeing disk content is unchanged when the sheet appears — Keep Theirs still recovers it.
 
 ---
 
@@ -139,9 +169,19 @@ host presents document
                                                    (DC-19/20)
 ```
 
-The save bridge and the detector share two pieces of state owned by `MarkdownDocument`: last-known-disk content (DC-9) and the followed location. They never both act on the buffer at once: while a collision sheet or deletion banner is up, the save bridge's autosave is suspended for that document (DC-14, DC-16), so the only writer is the user's explicit resolution.
+The save bridge and the detector share two pieces of state owned by `MarkdownDocument`: last-known-disk content (DC-9) and the followed location. They never both act on the buffer at once: from the instant the detector classifies `collision` or `deleted` (not merely once the surface is on screen), the save bridge's autosave is suspended for that document (DC-22, tightening DC-14/DC-16), so the only writer is the user's explicit resolution. And at the apply edge, every outcome is re-validated against the live buffer before mutation, so an absorb derived from an off-main read can never overwrite edits typed during that read (DC-21).
 
 ---
+
+## Prescription-feedback resolution
+
+*The adversarial review flagged that some design content named internal interface shapes (`MarkdownDocument.text`, `MarkdownDocumentSaveBridge`, `LastFileStore.recordLastOpened`, the four outcome cases) and the 500ms debounce as implementation prescription rather than behavioral constraint. Those names remain in the design as orientation for the build agent (they are real in-repo seams), but the **properties they protect** are restated here as the behavioral surface — so tests assert behavior, not call shapes.*
+
+- **Internal interface names → behavioral properties.** The names are descriptive, not load-bearing. What the system guarantees, independent of how the seams are wired: (a) exactly one component is the collision/move/deletion authority and it observes only the open document (DC-1, DC-4, BR-10, BR-18); (b) clean/dirty and absorb/collision are decided by a single last-known-disk reference that the writer and the detector keep in agreement, so a save and a detect never disagree about what disk holds (DC-9, DC-10); (c) on a followed move, the location the session saves to, the title shown, and the resume reference all track the new location together (DC-19, BR-8.2/8.3/8.5). None of these require a test to name an attribute or method.
+
+- **500ms debounce → "autosave does not fire on every keystroke."** The 500ms idle debounce is an inherited implementation value, not a guarantee this feature owns. The behavioral property it serves: autosave coalesces continuous typing into at most one write per short idle gap rather than writing on each character, and — load-bearing for this feature — a save that was *queued or pending* when a collision/deletion is classified must not fire during the classify→present gap (DC-22, BR-20.2). Tests assert the no-clobber end-state across the gap, not the millisecond figure.
+
+- **2s settle / 2s disambiguation → genuine behavioral thresholds, kept as properties.** Unlike the debounce, these two are thresholds the user/system observably cares about and they stay pinned: a conflict signal arriving within 2s of the user's own create/open/save is suppressed (DC-6, BR-3), and a "file gone" signal is treated as a move (no banner) if the file reappears within 2s, else a deletion (DC-16, BR-9.5/BR-16). Framed as properties: "Markus does not prompt about a change for ~2s after the user's own action settles" and "a delete-then-recreate within ~2s is a move, not a deletion."
 
 ## Behavioral test anchors (for `/tests`)
 
@@ -150,6 +190,8 @@ These restate the now-pinned values so spec tests can assert concretely:
 - Move-vs-deletion disambiguation interval = **2000ms** of continued absence before `deleted` (DC-16).
 - Keep Theirs and Discard Mine assert the **same** end-state (adopt disk, drop local, clean); Keep Mine asserts buffer→disk (DC-13).
 - A single external change produces at most one user-visible response across `SaveStatusObserver` and the detector (DC-3).
+- Apply-edge re-validation (DC-21): a clean buffer that turns dirty between read and apply is never silently overwritten by absorb — typed edits are preserved or surfaced as a collision; an unchanged buffer still absorbs silently (no spurious sheet).
+- Classification-keyed suspension (DC-22): a queued/debounced autosave driven during the classify→present gap does not write — the disagreeing disk content is unchanged when the sheet appears, and Keep Theirs still recovers it; same for a classified deletion not recreating the vanished path.
 
 ---
 
