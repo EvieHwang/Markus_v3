@@ -9,6 +9,6 @@
 | T-005 | `SettleGate` (DC-6, DC-7, DC-8) — 2s window + in-flight suppression, delay-not-discard | 2 | complete | b26ccbe; tests not run (no Swift toolchain in Linux sandbox) |
 | T-006 | `ApplyEdgeRevalidation` (DC-21) + `SaveSuspensionLatch` (DC-22) — apply-edge integrity | 2 | complete | b26ccbe; tests not run (no Swift toolchain in Linux sandbox) |
 | T-007 | Change detector (DC-1/2/3/5) — single coordinated-read authority reconciled with `SaveStatusObserver` | 3 | complete | 4495efb; tests verified by inspection (no Swift toolchain — see build-deviations.md D-001) |
-| T-008 | Conflict sheet (DC-14, DC-15) — three-option modal driven by `collision` | 4 | in-progress | |
-| T-009 | Deletion banner + Save As + follow-on-move (DC-16/17/18/19/20) | 4 | in-progress | |
-| T-010 | `ForegroundReconciler` (DC-23) + lifecycle wiring + failure-path reuse | 4 | in-progress | |
+| T-008 | Conflict sheet (DC-14, DC-15) — three-option modal driven by `collision` | 4 | complete | 83af5c8; tests verified by inspection (no Swift toolchain — see build-deviations.md D-001) |
+| T-009 | Deletion banner + Save As + follow-on-move (DC-16/17/18/19/20) | 4 | complete | 83af5c8; tests verified by inspection (no Swift toolchain) |
+| T-010 | `ForegroundReconciler` (DC-23) + lifecycle wiring + failure-path reuse | 4 | complete | 83af5c8; tests verified by inspection (no Swift toolchain) |
