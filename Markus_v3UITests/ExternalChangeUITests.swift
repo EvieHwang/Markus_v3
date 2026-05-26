@@ -53,9 +53,17 @@ final class ExternalChangeUITests: XCTestCase {
 
     private func openSeededFile(_ extraArgs: [String] = []) -> XCUIApplication {
         let app = launch(["-uitest-open-seed-file"] + extraArgs)
-        XCTAssertTrue(app.otherElements["RenderedView"].waitForExistence(timeout: 5),
+        XCTAssertTrue(renderedView(in: app).waitForExistence(timeout: 5),
                       "The seeded file must open into the rendered view")
         return app
+    }
+
+    /// Look-up helper that mirrors `ResumeAndCreateUITests` — SwiftUI's
+    /// `RenderedView` (a `ScrollView`) is not exposed as `.other`, so the
+    /// element-type-specific `app.otherElements["RenderedView"]` query never
+    /// resolves it. Querying across all element types does.
+    private func renderedView(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "RenderedView").firstMatch
     }
 
     /// Conflict sheet identifiers the build agent assigns to the three options.
@@ -67,8 +75,38 @@ final class ExternalChangeUITests: XCTestCase {
         app.buttons["DeletionBannerSaveAs"].waitForExistence(timeout: timeout)
     }
 
+    /// Mirrors `ResumeAndCreateUITests.tapCreateDocument` — the create affordance has
+    /// varying labels across iOS versions.
+    private func tapCreateDocument(in app: XCUIApplication) {
+        let candidates: [XCUIElement] = [
+            app.buttons["Create Document"],
+            app.cells["Create Document"],
+            app.buttons["New Document"],
+            app.buttons["Create"]
+        ]
+        for c in candidates where c.waitForExistence(timeout: 3) {
+            c.tap()
+            return
+        }
+        XCTFail("Could not find Create Document affordance")
+    }
+
+    /// Mirrors `ResumeAndCreateUITests.browserIsVisible` — `UIDocumentBrowserViewController`
+    /// has no single stable identifier across iOS versions, so probe several candidates.
+    private func browserIsVisible(_ app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
+        if app.otherElements["UIDocumentBrowserView"].waitForExistence(timeout: timeout) { return true }
+        if app.navigationBars["Browse"].waitForExistence(timeout: 1) { return true }
+        if app.navigationBars["Recents"].waitForExistence(timeout: 1) { return true }
+        if app.navigationBars.firstMatch.waitForExistence(timeout: 1)
+            && !renderedView(in: app).exists
+            && app.textViews.firstMatch.exists == false {
+            return true
+        }
+        return false
+    }
+
     private func enterRawEditor(_ app: XCUIApplication) {
-        app.otherElements["RenderedView"].tap()
+        renderedView(in: app).tap()
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 3),
                       "Tap-to-edit must enter the raw editor")
     }
@@ -110,7 +148,7 @@ final class ExternalChangeUITests: XCTestCase {
         app.buttons["DebugInjectExternalChange"].tap()
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 3),
                       "Absorption must not drop the raw editing mode (BR-1.5)")
-        XCTAssertFalse(app.otherElements["RenderedView"].exists,
+        XCTAssertFalse(renderedView(in: app).exists,
                        "Absorption must not force a switch back to rendered (BR-1.5)")
     }
 
@@ -139,10 +177,10 @@ final class ExternalChangeUITests: XCTestCase {
     // BR-3.5 — the normal single-device create→type→save flow produces zero sheets/banners.
     func testNormalCreateTypeSaveProducesNoConflictSurfaces() {
         let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(app.otherElements["UIDocumentBrowserView"].waitForExistence(timeout: 5)
-                      || app.navigationBars["Browse"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserIsVisible(app),
+                      "Browser must be visible after reset before driving the create flow")
         // The build agent drives create → type → save through the existing create flow.
-        app.buttons["CreateDocument"].firstMatch.tap()
+        tapCreateDocument(in: app)
         let editor = app.textViews.firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.typeText("# A brand new note\nwith a line of prose\n")
@@ -288,7 +326,7 @@ final class ExternalChangeUITests: XCTestCase {
         XCTAssertTrue(deletionBannerIsVisible(app, timeout: 6),
                       "Deletion must show a banner offering Save As (BR-9.1)")
         // The buffer is not discarded — entering raw still shows editable content.
-        app.otherElements["RenderedView"].tap()
+        renderedView(in: app).tap()
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 3),
                       "The buffer must remain intact and editable while the banner is shown (BR-9.2)")
     }
@@ -306,7 +344,7 @@ final class ExternalChangeUITests: XCTestCase {
         let app = openSeededFile(["-uitest-external-delete"])
         XCTAssertTrue(deletionBannerIsVisible(app, timeout: 6))
         app.buttons["DeletionBannerDismiss"].tap()
-        app.otherElements["RenderedView"].tap()
+        renderedView(in: app).tap()
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 3),
                       "Dismissing the banner without Save As must not lose the buffer (BR-9.6)")
     }

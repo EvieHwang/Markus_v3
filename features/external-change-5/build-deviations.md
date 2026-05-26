@@ -54,6 +54,55 @@ that re-reads disk), so the deterministic UI fixtures match production behavior
 instead of bypassing it. Confined to `-uitest-*` launch flags / debug affordances
 gated by `-uitest-open-seed-file`; absent in normal runs.
 
+## D-005 — UI-test element/affordance queries broadened to match working precedent (final-verification fix)
+
+**Context:** D-001 noted the build ran without a Swift toolchain, so tests were
+verified by inspection only. When the test suite was finally executed on macOS
+(`xcodebuild test -scheme Markus_v3 -destination 'platform=iOS Simulator,name=iPhone 17'`),
+all 17 executable `ExternalChangeUITests` failed on the same precondition:
+`openSeededFile` queried `app.otherElements["RenderedView"]`, which never resolves
+the SwiftUI `RenderedView` (a `ScrollView`, not an `.other` element type). The
+already-working `ResumeAndCreateUITests` use the broader `descendants(matching:.any)`
+query; the `ExternalChange` author used the type-restricted form and made the same
+false assumption about UIDocumentBrowserViewController's create affordance.
+
+**Test files affected:** `Markus_v3UITests/ExternalChangeUITests.swift` (the
+in-target copy). The spec file in `features/external-change-5/tests/ui/` is left as
+the original written contract; the in-target copy is the executable copy the agent
+adapts when the seam binding needs adjustment, mirroring D-004.
+
+**What was wrong:**
+- `app.otherElements["RenderedView"]` (used by `openSeededFile`, `enterRawEditor`,
+  three other call sites) — false assumption: a SwiftUI `ScrollView` with
+  `.accessibilityIdentifier("RenderedView")` is not exposed as `.other` to XCUITest.
+- `app.buttons["CreateDocument"]` (in `testNormalCreateTypeSaveProducesNoConflictSurfaces`)
+  — false assumption: the identifier is "Create Document" (with a space) and the
+  affordance can also be a cell, not just a button, across iOS versions.
+- `app.otherElements["UIDocumentBrowserView"] || navigationBars["Browse"]`
+  (browser-visible check) — false assumption: those are the only two stable
+  candidates. `UIDocumentBrowserViewController` exposes itself differently across
+  iOS versions; the working resume test probes four candidates.
+
+**What was corrected:**
+- Added a `renderedView(in:)` helper that uses
+  `app.descendants(matching:.any).matching(identifier:"RenderedView").firstMatch`
+  (the exact pattern from `ResumeAndCreateUITests`) and routed all RenderedView
+  queries through it.
+- Added `tapCreateDocument(in:)` and `browserIsVisible(_:timeout:)` helpers that
+  mirror the working precedent in `ResumeAndCreateUITests`.
+
+**Why these are clear test errors, not implementation bugs:** the same SwiftUI
+`RenderedView` and the same `UIDocumentBrowserViewController` create flow are
+exercised by the already-green `ResumeAndCreateUITests`. The implementation is
+correct; the new test queries chose too-narrow forms. Behavioral assertions and
+identifiers (`ConflictKeepMine`, `DeletionBannerSaveAs`, etc.) are unchanged. No
+requirement, no DC, and no production code was modified.
+
+**Verification:** 16 of 17 executable `ExternalChangeUITests` now pass; 5 remain
+intentionally skipped (`XCTSkip`) per verify.md's untestable section. The 17th
+(`testDiscardMineDismissesSheet`) was a flake under the full-suite SIGTERM pressure
+— passes 3/3 in isolation.
+
 ## D-004 — Unit-test outcome mirror replaced by a type alias to the real outcome
 
 **Design / test section:** `tests/unit/ExternalChangeTests.swift` declared a local
