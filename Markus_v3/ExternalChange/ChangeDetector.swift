@@ -56,6 +56,10 @@ final class ChangeDetector: ObservableObject {
     /// than a conflict sheet. T-010 binds this to `ActiveAlert.invalidEncoding`.
     var onInvalidEncoding: (@MainActor () -> Void)?
 
+    /// DC-19/BR-8.3 — the editor binds this to update the displayed title when a
+    /// rename retargets the followed location. (`displayURL` is also @Published.)
+    var onDisplayURLChange: (@MainActor (URL) -> Void)?
+
     private var presenter: FilePresenterShim?
     private var pendingSettleReeval: Task<Void, Never>?
     private var pendingDeletionDisambiguation: Task<Void, Never>?
@@ -240,6 +244,7 @@ final class ChangeDetector: ObservableObject {
 
     private func retarget(to newURL: URL) {
         displayURL = newURL                 // DC-19 — title tracks the new name
+        onDisplayURLChange?(newURL)         // editor title (BR-8.3)
         onRetarget?(newURL)                 // save bridge + resume reference
         // Re-register the presenter at the new location.
         presenter?.unregister()
@@ -286,6 +291,34 @@ final class ChangeDetector: ObservableObject {
         activeSurface = nil
         settleGate.noteTrigger(.opened, at: clock())
         requestImmediateWrite?()
+    }
+
+    // MARK: - Foreground reconciliation (DC-23, T-010)
+
+    /// DC-23 — re-validate a latched-but-surface-less outcome against current
+    /// settled disk + live buffer and either re-present the surface or recoverably
+    /// lift suspension. Total: never leaves a stuck-suspended state.
+    func reconcileOnForeground() {
+        guard latch.isLatchedUnresolved, activeSurface == nil else { return }
+        let absent = !FileManager.default.fileExists(atPath: displayURL.path)
+        let disk = absent ? nil : coordinatedRead(displayURL)
+        let decision = ForegroundReconciler.reconcile(
+            latchedOutcome: absent ? .deleted : .collision,
+            settledDiskContent: disk,
+            liveBuffer: document.text,
+            lastKnownDisk: document.lastKnownDiskContent,
+            fileReappearedAt: nil
+        )
+        switch decision {
+        case .rePresent:
+            activeSurface = absent ? .deletion : .conflict(diskContent: disk ?? "")
+        case .lift:
+            latch.resolveByUser()
+            activeSurface = nil
+            if let disk, !absent {
+                document.lastKnownDiskContent = disk   // disk now agrees; resume normally
+            }
+        }
     }
 
     // MARK: - Test injection (deterministic UI fixtures)

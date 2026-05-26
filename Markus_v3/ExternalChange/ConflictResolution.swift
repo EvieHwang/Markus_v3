@@ -7,7 +7,7 @@ import Foundation
 /// identical — adopt the on-disk content into the buffer, drop local edits, buffer
 /// becomes clean, with no clobbering write to disk. Two labels, one outcome.
 enum ConflictResolution {
-    enum Option: CaseIterable, Equatable {
+    enum Option: CaseIterable, Hashable {
         case keepMine
         case keepTheirs
         case discardMine

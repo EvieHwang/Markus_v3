@@ -18,6 +18,7 @@ struct DocumentView: View {
     @StateObject private var rawScrollState = RawEditorScrollState()
     @State private var pendingRawAnchor: ScrollAnchor?
     @State private var pendingRenderedAnchor: ScrollAnchor?
+    @State private var currentDisplayURL: URL?
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.undoManager) private var undoManager
@@ -73,6 +74,11 @@ struct DocumentView: View {
             }
         }
         .overlay(alignment: .top) { debugInjectionBar }
+        .overlay {
+            if let detector {
+                DetectorSurfaces(detector: detector, document: document)
+            }
+        }
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
@@ -104,6 +110,9 @@ struct DocumentView: View {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
                 triggerSave()
+            } else if newPhase == .active {
+                // DC-23 — recover a latched-but-surface-less outcome on return.
+                detector?.reconcileOnForeground()
             }
         }
         .onChange(of: saveStatusObserver.lastSaveError) { _, err in
@@ -142,7 +151,9 @@ struct DocumentView: View {
     }
 
     private var displayName: String {
-        fileURL?.deletingPathExtension().lastPathComponent ?? ""
+        // DC-19/BR-8.3 — track the detector's followed location so a rename
+        // propagates to the title; fall back to the opened URL.
+        (currentDisplayURL ?? fileURL)?.deletingPathExtension().lastPathComponent ?? ""
     }
 
     /// Test-only deterministic external-change injectors, present only under the
@@ -224,6 +235,8 @@ struct DocumentView: View {
             obs?.isDownloadingFromiCloud ?? false
         }
         detector.onInvalidEncoding = { activeAlert = .invalidEncoding }
+        currentDisplayURL = detector.displayURL
+        detector.onDisplayURLChange = { url in currentDisplayURL = url }
         detector.start()
         handleLaunchInjections(ProcessInfo.processInfo.arguments, detector)
     }

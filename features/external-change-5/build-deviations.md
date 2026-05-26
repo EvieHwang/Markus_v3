@@ -53,3 +53,23 @@ into the classifier.
 that re-reads disk), so the deterministic UI fixtures match production behavior
 instead of bypassing it. Confined to `-uitest-*` launch flags / debug affordances
 gated by `-uitest-open-seed-file`; absent in normal runs.
+
+## D-004 — Unit-test outcome mirror replaced by a type alias to the real outcome
+
+**Design / test section:** `tests/unit/ExternalChangeTests.swift` declared a local
+`enum ExternalChangeOutcomeKind` mirror with a header note that "the build agent
+maps these public seam names onto the real detector symbols when the tasks are
+implemented; the contract under test is the outcome, not the wiring."
+
+**What was done:** In the copied Xcode-target test
+(`Markus_v3Tests/ExternalChangeTests.swift`) the local mirror was replaced with
+`typealias ExternalChangeOutcomeKind = ExternalChangeOutcome` so the assertions bind
+to the real four-case enum vended by `ChangeClassifier` / `ApplyEdgeRevalidation` /
+`ChangeDetector`. No assertion changed. The mirror's `.suppressed` case was unused by
+any assertion (suppression is observed via `SettleGate.isSuppressed` returning Bool),
+so dropping it is inert.
+
+**Why:** This is the exact seam-binding the spec-test header anticipates; it lets the
+tests assert against the production type rather than a parallel mirror. Mirrors the
+`editor-foundation-4` precedent where copied spec tests were adapted to real
+initializers.
