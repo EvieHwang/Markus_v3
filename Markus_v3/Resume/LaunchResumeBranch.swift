@@ -22,6 +22,9 @@ enum LaunchResumeBranch {
     static let resetArg = "-uitest-reset-last-file"
     static let staleArg = "-uitest-stale-last-file"
     static let seedArg = "-uitest-seed-last-file"
+    /// external-change-5: open a freshly-seeded sample as the open document so the
+    /// external-change UI tests have a known file behind the editor.
+    static let openSeedArg = "-uitest-open-seed-file"
 
     /// Apply UI-test launch overrides to `LastFileStore` if any are
     /// present in `arguments`. Idempotent; safe to call on every scene
@@ -41,7 +44,11 @@ enum LaunchResumeBranch {
             UserDefaults.standard.set(Data([0xDE, 0xAD, 0xBE, 0xEF]), forKey: LastFileStore.defaultBookmarkKey)
             UserDefaults.standard.set("/var/empty/never-exists.md", forKey: LastFileStore.defaultPathKey)
         }
-        if arguments.contains(seedArg) {
+        if arguments.contains(seedArg) || arguments.contains(openSeedArg) {
+            // Reset any stale store/seed first so the open file is deterministic.
+            if arguments.contains(openSeedArg) {
+                removeSeededSample()
+            }
             seedSampleAndRecord(store: store)
         }
     }

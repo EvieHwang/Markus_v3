@@ -6,6 +6,7 @@ struct DocumentView: View {
     let fileURL: URL?
     let initialMode: DocumentMode?
     let focusEditorOnAppear: Bool
+    let detector: ChangeDetector?
     let onBack: (() -> Void)?
 
     @State private var mode: DocumentMode = .rendered
@@ -31,11 +32,13 @@ struct DocumentView: View {
          fileURL: URL? = nil,
          initialMode: DocumentMode? = nil,
          focusEditorOnAppear: Bool = false,
+         detector: ChangeDetector? = nil,
          onBack: (() -> Void)? = nil) {
         self.document = document
         self.fileURL = fileURL
         self.initialMode = initialMode
         self.focusEditorOnAppear = focusEditorOnAppear
+        self.detector = detector
         self.onBack = onBack
         let doc = document
         self._coordinator = State(wrappedValue: AutosaveCoordinator(onIdle: { [weak doc] in
@@ -69,6 +72,7 @@ struct DocumentView: View {
                 }
             }
         }
+        .overlay(alignment: .top) { debugInjectionBar }
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
@@ -92,6 +96,10 @@ struct DocumentView: View {
                 didInitMode = true
             }
             document.undoManager = undoManager
+            startDetectorIfNeeded()
+        }
+        .onDisappear {
+            detector?.stop()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
@@ -135,6 +143,27 @@ struct DocumentView: View {
 
     private var displayName: String {
         fileURL?.deletingPathExtension().lastPathComponent ?? ""
+    }
+
+    /// Test-only deterministic external-change injectors, present only under the
+    /// `-uitest-open-seed-file` UI-test marker (see ExternalChangeUITests). Routed
+    /// through the live detector so they exercise the real classify→apply path.
+    @ViewBuilder
+    private var debugInjectionBar: some View {
+        if ProcessInfo.processInfo.arguments.contains("-uitest-open-seed-file"), let detector {
+            HStack(spacing: 1) {
+                Button("ic") { detector.injectExternalChange("EXTERNAL DIVERGENT CONTENT\n") }
+                    .accessibilityIdentifier("DebugInjectExternalChange")
+                Button("id") { detector.injectExternalChange(document.text) }
+                    .accessibilityIdentifier("DebugInjectIdenticalExternalChange")
+                Button("kt") { detector.injectExternalChange("EXTERNAL-KNOWN-MARKER\n") }
+                    .accessibilityIdentifier("DebugInjectExternalChangeKnownText")
+                Button("iu") { detector.injectInvalidUTF8() }
+                    .accessibilityIdentifier("DebugInjectInvalidUtf8")
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+        }
     }
 
     private var alertPresented: Binding<Bool> {
@@ -184,6 +213,48 @@ struct DocumentView: View {
 
     private func triggerSave() {
         document.markDirty()
+    }
+
+    private func startDetectorIfNeeded() {
+        guard let detector else { return }
+        // DC-7 — feed the detector the iCloud busy signal so it suppresses
+        // classification while a sync is in flight, without delegating the
+        // collision decision to the observer (DC-3).
+        detector.isSyncInFlight = { [weak obs = saveStatusObserver] in
+            obs?.isDownloadingFromiCloud ?? false
+        }
+        detector.onInvalidEncoding = { activeAlert = .invalidEncoding }
+        detector.start()
+        handleLaunchInjections(ProcessInfo.processInfo.arguments, detector)
+    }
+
+    /// Deterministic UI-test injections applied once the detector is live, mirroring
+    /// the resume-and-create seeding convention (see ExternalChangeUITests).
+    private func handleLaunchInjections(_ args: [String], _ detector: ChangeDetector) {
+        if let content = value(after: "-uitest-external-change", in: args) {
+            detector.injectExternalChange(content)
+        }
+        if let name = value(after: "-uitest-external-rename", in: args) {
+            detector.injectExternalRename(to: name)
+        }
+        if args.contains("-uitest-external-delete") {
+            detector.injectExternalDelete()
+        }
+        if args.contains("-uitest-external-move-reappear") {
+            // A delete-then-reappear within the window resolves as a move (BR-9.5):
+            // no banner. Modeled by a direct move injection — the file remains
+            // resolvable at the new location, so presence-first yields `moved`.
+            detector.injectExternalRename(to: "Reappeared.md")
+        }
+        // -uitest-inject-invalid-utf8 is driven by the DebugInjectInvalidUtf8 button
+        // in-session (firing it at launch would pop the alert before the editor opens).
+        // -uitest-external-change-other-file is intentionally a no-op for the open
+        // document: a change to a non-open file produces no UI (BR-18).
+    }
+
+    private func value(after flag: String, in args: [String]) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        return args[i + 1]
     }
 
     private func copyContentsToClipboard() {

@@ -47,8 +47,12 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     var willPresentInitialContent: ((BrowserHostController, UIScene.ConnectionOptions) -> Void)?
 
     private var currentSaveBridge: MarkdownDocumentSaveBridge?
+    private var currentDetector: ChangeDetector?
     private var currentPresentedNav: UINavigationController?
     private var edgeSwipeRecognizer: UIScreenEdgePanGestureRecognizer?
+
+    /// Resume-reference store, reused by the follow-on-move retarget (DC-19/BR-8.5).
+    private let lastFileStore = LastFileStore()
 
     /// Closure run once on the first `viewDidAppear`, before any other
     /// activity, to give the resume decision a fully-on-screen host to
@@ -115,19 +119,36 @@ final class BrowserHostController: UIDocumentBrowserViewController {
             return
         }
 
-        let bridge = MarkdownDocumentSaveBridge(
-            document: document,
-            url: url,
-            deferUntilFirstNonEmpty: deferUntilFirstNonEmpty
-        )
-        bridge.onFirstPersist = { [weak self] persistedURL in
-            // For a deferred-write create, the file becoming real on disk
-            // for the first time also makes it the new last-opened
-            // reference (DC-10 / BR-15). Funnel through the same
-            // didOpenDocument hook T-008 binds to LastFileStore.record.
-            self?.didOpenDocument?(persistedURL)
-        }
+        // DC-1 — the owned change detector, created beside the save bridge and
+        // wired to it through the shared `MarkdownDocument` (last-known-disk) and
+        // the suspension gate (DC-22). Settle suppression can be disabled for
+        // deterministic UI tests via `-uitest-suppress-settle`.
+        let settleEnabled = !ProcessInfo.processInfo.arguments.contains("-uitest-suppress-settle")
+        let detector = ChangeDetector(document: document, url: url, settleEnabled: settleEnabled)
+        self.currentDetector = detector
+
+        let bridge = makeSaveBridge(document: document,
+                                    url: url,
+                                    deferUntilFirstNonEmpty: deferUntilFirstNonEmpty,
+                                    detector: detector)
         self.currentSaveBridge = bridge
+
+        // DC-13/BR-5 — Keep Mine and Save As ask the bridge for the single
+        // deliberate write; suspension was already lifted by the resolution.
+        detector.requestImmediateWrite = { [weak self] in
+            self?.currentSaveBridge?.saveSynchronously()
+        }
+        // DC-19/BR-8 — on a followed move, retarget the save bridge to the new
+        // location and update the resume reference so a later launch resumes there.
+        detector.onRetarget = { [weak self, weak detector] newURL in
+            guard let self, let detector else { return }
+            let newBridge = self.makeSaveBridge(document: document,
+                                                url: newURL,
+                                                deferUntilFirstNonEmpty: false,
+                                                detector: detector)
+            self.currentSaveBridge = newBridge
+            self.lastFileStore.recordLastOpened(newURL)
+        }
 
         let onBack: () -> Void = { [weak self] in
             self?.dismissPresentedEditor()
@@ -138,6 +159,7 @@ final class BrowserHostController: UIDocumentBrowserViewController {
             fileURL: url,
             initialMode: initialMode,
             focusEditorOnAppear: focusEditorOnAppear,
+            detector: detector,
             onBack: onBack
         )
         let host = UIHostingController(rootView: editor)
@@ -158,9 +180,37 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         }
     }
 
+    /// Builds a save bridge wired to the detector: it consults the suspension gate
+    /// before writing (DC-22), and on a successful write resets last-known-disk and
+    /// opens the settle window (DC-9/DC-6).
+    @MainActor
+    private func makeSaveBridge(document: MarkdownDocument,
+                                url: URL,
+                                deferUntilFirstNonEmpty: Bool,
+                                detector: ChangeDetector) -> MarkdownDocumentSaveBridge {
+        let bridge = MarkdownDocumentSaveBridge(
+            document: document,
+            url: url,
+            deferUntilFirstNonEmpty: deferUntilFirstNonEmpty
+        )
+        bridge.allowsSaveBack = { [weak detector] in detector?.allowsSaveBack ?? true }
+        bridge.onDidWrite = { [weak detector] written in
+            detector?.noteSaveCompleted(writtenContent: written)
+        }
+        bridge.onFirstPersist = { [weak self, weak detector] persistedURL in
+            detector?.noteFirstPersist(content: document.text)
+            // For a deferred-write create, the file becoming real on disk for the
+            // first time also makes it the new last-opened reference (DC-10/BR-15).
+            self?.didOpenDocument?(persistedURL)
+        }
+        return bridge
+    }
+
     @MainActor
     private func dismissPresentedEditor() {
         currentSaveBridge?.saveSynchronously()
+        currentDetector?.stop()
+        currentDetector = nil
         currentSaveBridge = nil
         currentPresentedNav = nil
         edgeSwipeRecognizer = nil

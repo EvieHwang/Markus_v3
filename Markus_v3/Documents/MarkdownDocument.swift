@@ -19,11 +19,26 @@ final class MarkdownDocument: ReferenceFileDocument {
     @Published var text: String
     let initialByteSize: Int
 
+    /// DC-9 — the bytes Markus last *wrote to* or last *read from* disk for this
+    /// document. The single shared reference both the save bridge (updates after a
+    /// successful write) and the change detector (updates after an absorb / a
+    /// resolution) keep in agreement, and from which clean/dirty is derived. On
+    /// load it equals the just-read content, so a freshly opened buffer is clean.
+    var lastKnownDiskContent: String
+
     weak var undoManager: UndoManager?
+
+    /// DC-10 — clean iff the buffer equals last-known-disk under the equality gate
+    /// (DC-11), independent of edit history. This — not the undo manager — is the
+    /// authority for collision decisions.
+    var isCleanAgainstDisk: Bool {
+        ContentEqualityGate.equal(text, lastKnownDiskContent)
+    }
 
     init() {
         self.text = ""
         self.initialByteSize = 0
+        self.lastKnownDiskContent = ""
     }
 
     init(file: FileWrapper, contentType: UTType) throws {
@@ -33,6 +48,7 @@ final class MarkdownDocument: ReferenceFileDocument {
         }
         self.text = decoded
         self.initialByteSize = bytes.count
+        self.lastKnownDiskContent = decoded
     }
 
     convenience init(configuration: ReadConfiguration) throws {
