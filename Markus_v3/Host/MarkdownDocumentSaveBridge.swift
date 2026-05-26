@@ -45,6 +45,16 @@ final class MarkdownDocumentSaveBridge {
     /// reference (DC-10 / BR-15).
     var onFirstPersist: ((URL) -> Void)?
 
+    /// DC-22 — save-back gate. When this returns false (a collision/deletion has
+    /// been classified for the open document), the bridge does not write: the
+    /// disagreeing on-disk content stays recoverable until the user resolves.
+    /// Default allows all writes.
+    var allowsSaveBack: () -> Bool = { true }
+
+    /// DC-9 — invoked after a successful write with the bytes written, so the
+    /// detector can reset last-known-disk and open the settle window (DC-6).
+    var onDidWrite: ((String) -> Void)?
+
     init(document: MarkdownDocument,
          url: URL,
          deferUntilFirstNonEmpty: Bool = false) {
@@ -79,6 +89,8 @@ final class MarkdownDocumentSaveBridge {
         // (still-empty) new file on background/teardown either (DC-9 /
         // BR-13 / BR-24).
         guard hasSeenContent else { return }
+        // DC-22 — never flush over a classified-but-unresolved collision/deletion.
+        guard allowsSaveBack() else { return }
         pendingSave?.cancel()
         pendingSave = nil
         writeNow()
@@ -99,17 +111,24 @@ final class MarkdownDocumentSaveBridge {
     }
 
     private func writeNow() {
+        // DC-22 — re-check at the write edge: a collision may have been classified
+        // after this save was scheduled (the classify→present gap).
+        guard allowsSaveBack() else { return }
         let didExistBefore = FileManager.default.fileExists(atPath: url.path)
+        let textToWrite = document.text
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            try Data(document.text.utf8).write(to: url, options: [.atomic])
+            try Data(textToWrite.utf8).write(to: url, options: [.atomic])
         } catch {
             // Save failed. Wave 3 swallows; a follow-up will route this into
             // SaveStatusObserver / the alert path that DocumentView already
             // surfaces. Recorded in features/resume-and-create-2/build-deviations.md.
             return
         }
+        // DC-9 — a successful write is now the last-known-disk content, and a
+        // settle trigger (DC-6) so the sync echo of our own write is suppressed.
+        onDidWrite?(textToWrite)
         if !didExistBefore {
             onFirstPersist?(url)
         }
