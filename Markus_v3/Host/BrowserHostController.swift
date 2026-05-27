@@ -54,6 +54,11 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     /// Resume-reference store, reused by the follow-on-move retarget (DC-19/BR-8.5).
     private let lastFileStore = LastFileStore()
 
+    /// Recents registrar invoked from `presentDocument(at:isResumeOpen:)`
+    /// when the open originates from `LaunchResumeBranch` (design C7, NP-10).
+    /// Lazy so tests can inspect call state after `presentDocument` runs.
+    private(set) lazy var recentsRegistrar: RecentsRegistrar = RecentsRegistrar(host: self)
+
     /// Closure run once on the first `viewDidAppear`, before any other
     /// activity, to give the resume decision a fully-on-screen host to
     /// present onto. Set by `SceneDelegate`; cleared after firing.
@@ -103,13 +108,24 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     ///     document instead of reading file contents from `url`. Used by
     ///     the create flow (the new file does not yet exist on disk).
     ///   - animated: passed to `present`. Default true.
+    ///   - isResumeOpen: when true, this open originates from
+    ///     `LaunchResumeBranch` (bookmark-based resume) and triggers a
+    ///     best-effort Recents registration (design C7 / NP-10).
     @MainActor
     func presentDocument(at url: URL,
                          initialMode: DocumentMode? = nil,
                          focusEditorOnAppear: Bool = false,
                          deferUntilFirstNonEmpty: Bool = false,
                          preloadedDocument: MarkdownDocument? = nil,
-                         animated: Bool = true) {
+                         animated: Bool = true,
+                         isResumeOpen: Bool = false) {
+        // NPC-15: Recents registration is attempted on every bookmark-based open,
+        // before any presentation work — so even when the browser is off-screen
+        // (resume path) the registration still fires. NPC-16: failures swallowed.
+        if isResumeOpen {
+            recentsRegistrar.register(url: url)
+        }
+
         let document: MarkdownDocument
         if let preloadedDocument {
             document = preloadedDocument
