@@ -51,11 +51,16 @@ struct NP8_ShareConfigTests {
         #expect(DocumentViewShareConfig.canPresentShare(for: nil) == false)
     }
 
-    // NP-8.6 / NP-14 — deleted file is a no-op
-    @Test("canPresentShare returns false for missing file (NP-8.6, NP-14)")
-    func canPresentShareWithMissingFile() {
-        let url = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).md")
-        #expect(DocumentViewShareConfig.canPresentShare(for: url) == false)
+    // NP-8.6 / NP-14 — deleted-file guard is no longer in canPresentShare; it
+    // moved to the temp-file copy step in DocumentView.presentShareSheet() so
+    // security-scoped URLs (which fail FileManager.fileExists silently when the
+    // scope is not active) don't get blocked at the gate. canPresentShare here
+    // only refuses nil URLs.
+    @Test("canPresentShare returns true for any non-nil URL (existence checked at copy time)")
+    func canPresentShareIgnoresFileExistence() {
+        let missingURL = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).md")
+        #expect(DocumentViewShareConfig.canPresentShare(for: missingURL) == true,
+                "Gate accepts non-nil URLs; missing-file rejection happens at copy time")
     }
 
     // NP-8.2 — canPresentShare returns true for an existing file

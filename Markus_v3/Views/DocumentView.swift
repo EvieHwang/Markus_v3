@@ -21,6 +21,12 @@ struct DocumentView: View {
     @State private var currentDisplayURL: URL?
     /// T-008 / NP-8: drives the UIActivityViewController share sheet.
     @State private var isShareSheetPresented = false
+    /// The URL passed to `UIActivityViewController` — a copy of `fileURL`
+    /// living in `FileManager.default.temporaryDirectory`. Sharing the temp
+    /// copy lets `UIActivityViewController` read the file without needing the
+    /// original's security scope to be active (the original may be in Files /
+    /// iCloud / a sync provider).
+    @State private var shareSheetTempURL: URL?
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.undoManager) private var undoManager
@@ -72,7 +78,10 @@ struct DocumentView: View {
                         scrollState: rawScrollState,
                         pendingScrollAnchor: $pendingRawAnchor,
                         focusOnAppear: focusEditorOnAppear,
-                        onSwipeToRendered: { switchToRenderedFromSwipe() }
+                        onSwipeToRendered: { switchToRenderedFromSwipe() },
+                        // NP-5: mid-screen L→R on raw goes back to file browser,
+                        // matching the system edge-pan dismiss + back-button paths.
+                        onSwipeToBrowser: { onBack?() }
                     )
                 }
             }
@@ -92,11 +101,13 @@ struct DocumentView: View {
         // top edge (where SwiftUI would otherwise hide the bar background).
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(.bar, for: .navigationBar)
-        // T-008 / NP-8.2: present UIActivityViewController when the share button
-        // sets isShareSheetPresented. The fileURL guard in presentShareSheet()
-        // ensures we only set it when the file exists on disk (NP-8.6, NPC-12).
+        // T-008 / NP-8.2: present UIActivityViewController on the temp-file copy
+        // staged by presentShareSheet(). Sharing the temp URL (rather than the
+        // original) avoids the security-scope-not-active failure mode of
+        // sharing Files/iCloud-backed URLs (NP-8.4 / NP-8.5: the temp copy is
+        // a snapshot of the last-saved disk file).
         .sheet(isPresented: $isShareSheetPresented) {
-            if let url = fileURL {
+            if let url = shareSheetTempURL {
                 ActivityViewRepresentable(activityItems: [url])
             }
         }
@@ -183,11 +194,30 @@ struct DocumentView: View {
         }
     }
 
-    /// Tap handler for the share button. Guards against nil URL and missing
-    /// file (NP-8.6, NPC-12). Unsaved buffer edits are preserved — sharing
-    /// uses the disk file, not the in-memory buffer (NP-8.4 / NP-8.5).
+    /// Tap handler for the share button. Copies the on-disk file into a temp
+    /// location under its security scope (the original may be a Files / iCloud
+    /// URL whose scope is only valid for the duration of this call) and shares
+    /// the temp URL. Failed copies (file missing, scope denied) silently return
+    /// without presenting (NP-8.6, NP-14). Nil URL is rejected by the config
+    /// gate (NPC-12). Unsaved buffer edits are unaffected — the temp copy is a
+    /// snapshot of the last-saved disk file (NP-8.4 / NP-8.5).
     private func presentShareSheet() {
-        guard DocumentViewShareConfig.canPresentShare(for: fileURL) else { return }
+        guard DocumentViewShareConfig.canPresentShare(for: fileURL),
+              let url = fileURL else { return }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(url.lastPathComponent)
+        try? FileManager.default.removeItem(at: tempURL)
+
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        do {
+            try FileManager.default.copyItem(at: url, to: tempURL)
+        } catch {
+            return
+        }
+        shareSheetTempURL = tempURL
         isShareSheetPresented = true
     }
 

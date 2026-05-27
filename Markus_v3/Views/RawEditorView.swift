@@ -9,19 +9,27 @@ struct RawEditorView: View {
     /// NP-4: R→L swipe handler. Called when the gesture passes the
     /// `SwipeGestureDecision.detect` thresholds with `.rightToLeft` direction.
     let onSwipeToRendered: (() -> Void)?
+    /// NP-5: L→R swipe handler. Called when the gesture passes the
+    /// `SwipeGestureDecision.detect` thresholds with `.leftToRight` direction.
+    /// The system `UIScreenEdgePanGestureRecognizer` on the navigation
+    /// controller still catches edge-anchored L→R drags; this closure handles
+    /// mid-screen L→R swipes that would otherwise be ignored.
+    let onSwipeToBrowser: (() -> Void)?
 
     init(document: MarkdownDocument,
          coordinator: AutosaveCoordinator,
          scrollState: RawEditorScrollState,
          pendingScrollAnchor: Binding<ScrollAnchor?>,
          focusOnAppear: Bool = false,
-         onSwipeToRendered: (() -> Void)? = nil) {
+         onSwipeToRendered: (() -> Void)? = nil,
+         onSwipeToBrowser: (() -> Void)? = nil) {
         self.document = document
         self.coordinator = coordinator
         self.scrollState = scrollState
         self._pendingScrollAnchor = pendingScrollAnchor
         self.focusOnAppear = focusOnAppear
         self.onSwipeToRendered = onSwipeToRendered
+        self.onSwipeToBrowser = onSwipeToBrowser
     }
 
     var body: some View {
@@ -40,8 +48,10 @@ struct RawEditorView: View {
                         velocity: value.velocity,
                         startX: value.startLocation.x
                     )
-                    if direction == .rightToLeft {
-                        onSwipeToRendered?()
+                    switch direction {
+                    case .rightToLeft: onSwipeToRendered?()
+                    case .leftToRight: onSwipeToBrowser?()
+                    case nil:          break
                     }
                 }
         )
