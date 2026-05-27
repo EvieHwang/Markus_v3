@@ -27,7 +27,7 @@ This is a concrete, reproducible failure mode against a stated requirement. The 
 
 **Recommended action (architecture):** Strengthen C2's description of the normalizer's block-structure pass to require that indented-code-block detection is context-sensitive — it must track whether the current line is inside a list item (by noting whether a preceding line opened a list marker) and suppress indented-code-block classification within that context. Alternatively, the normalizer can use only fenced code block detection (``` ``` ``` delimiters) and avoid indented-code-block detection entirely, noting that indented code blocks are rare in prose markdown and that the app's target user (prose writer, not coder) is unlikely to author them. Either resolution must be stated explicitly in C2 before building.
 
-**Status:** open
+**Status:** addressed — C2 revised in design.md to use fenced-code-block detection only (` ``` ` / `~~~` delimiters); indented-code-block exemption dropped entirely. NPC-4 updated accordingly. Single newlines inside list continuation lines are now normalized as required by NP-3.3.
 
 ---
 
@@ -84,7 +84,7 @@ In the standard UIKit navigation stack, the interactive-pop gesture starts from 
 
 **Recommended action (architecture):** Add a note to C3 specifying the expected behavior when a L→R swipe on rendered view begins near the leading screen edge: either (a) the edge-pan recognizer wins (navigating to browser, not to raw), which is acceptable provided users know to drag from the middle for raw mode, or (b) require the SwiftUI DragGesture to fail when the gesture's start X position is within the edge-pan's recognition zone (first ~20pt). State the chosen behavior explicitly so the builder does not have to guess.
 
-**Status:** open
+**Status:** addressed — NPC-22 added to C3 in design.md stating that the `UIScreenEdgePanGestureRecognizer` (system edge pan) takes priority over the SwiftUI `DragGesture` in the leading screen-edge overlap zone. A near-edge L→R drag on the rendered view navigates to the file browser; the `DragGesture` (raw mode) fires only for drags starting outside the edge zone. NPC-22 also added to the full behavioral constraints list.
 
 ---
 
@@ -102,7 +102,7 @@ The design hedges between `ShareLink(item: fileURL)` and a fallback to imperativ
 
 | ID | Severity | Lens | Subject | Status |
 |----|----------|------|---------|--------|
-| F-001 | MEDIUM | Integrity / Failure modes | Indented-code-block heuristic misclassifies list-continuation lines; NP-3.3 fails for indented list body | open |
+| F-001 | MEDIUM | Integrity / Failure modes | Indented-code-block heuristic misclassifies list-continuation lines; NP-3.3 fails for indented list body | addressed |
 | F-002 | MEDIUM | Integrity / Coverage | NP-10.1/NP-10.2 assert deterministic Recents registration; design cannot guarantee it; gap deferred without amending requirements | addressed |
 | F-003 | LOW | Coverage | NP-9.1 color audit scope (app-wide) exceeds C6 design audit scope (modified components only) | addressed |
-| F-004 | LOW | Integrity / Failure modes | NP-6.5 rendered view L→R swipe vs. edge-pan recognizer overlap region unresolved in design | open |
+| F-004 | LOW | Integrity / Failure modes | NP-6.5 rendered view L→R swipe vs. edge-pan recognizer overlap region unresolved in design | addressed |

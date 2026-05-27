@@ -46,14 +46,14 @@ CommonMark spec — which `swift-cmark` implements — treats a single `\n` as a
 
 **Design choice:** A lightweight `MarkdownLineBreakNormalizer` transform is applied to the raw source string *before* it is passed to the `Markdown` view in `RenderedView`. This transform:
 
-1. Parses block-level structure using a pass that recognizes fenced code blocks (``` ``` ``` open/close fences), indented code blocks (4-space / 1-tab indent on every line of the block), and HTML blocks.
-2. Within any recognized code region, leaves content entirely unchanged.
-3. Outside code regions: for every `\n` that is not preceded by two or more spaces and is not a blank line (i.e. not `\n\n`), appends two spaces before the `\n` to convert it to a CommonMark hard line break.
+1. Parses block-level structure using a pass that recognizes fenced code blocks (` ``` ` or `~~~` open/close fences) and HTML blocks only. Indented-code-block detection (4-space / 1-tab) is intentionally excluded: in CommonMark, 4-space-indented text inside a list item is list-continuation body, not a code block, and a naïve indent-based heuristic would misclassify those lines and suppress the required hard-line-break injection inside list items (NP-3.3). Since the app's target user is a prose writer who is unlikely to author indented code blocks, omitting indented-code-block exemption is the correct trade-off. *Addresses adversarial F-001.*
+2. Within any recognized fenced code region, leaves content entirely unchanged.
+3. Outside code regions: for every `\n` that is not preceded by two or more spaces and is not a blank line (i.e. not `\n\n`), appends two spaces before the `\n` to convert it to a CommonMark hard line break. Single newlines inside list continuation lines are normalized by this step, satisfying NP-3.3.
 4. Is a pure function of its input string (no state, no side effects); safe to call on every re-render.
 
 The transform is a standalone struct/function in a new file `Editor/MarkdownLineBreakNormalizer.swift` with a single entry point that takes and returns a `String`. The `RenderedView` calls it on `text` before passing the result to `Markdown(...)`. No change to `MarkdownDocument`, `DocumentView`, or `swift-markdown-ui`.
 
-**Behavioral constraint NPC-4 (code block safety):** A fenced code block whose interior lines contain single `\n` separators is rendered with exactly the newlines the author wrote — the preprocessor injects nothing inside fence markers.
+**Behavioral constraint NPC-4 (code block safety):** A fenced code block (delimited by ` ``` ` or `~~~`) whose interior lines contain single `\n` separators is rendered with exactly the newlines the author wrote — the preprocessor injects nothing inside fence markers. Indented code blocks are not exempted (see design choice above); they are treated as ordinary text, with single newlines normalized to hard line breaks. *Addresses adversarial F-001.*
 
 **Behavioral constraint NPC-5 (inline code):** An inline code span that happens to contain a newline is passed through unchanged; the preprocessor does not inspect or modify inline code span content.
 
@@ -95,6 +95,8 @@ Approach 2 (SwiftUI-side `DragGesture`) is preferred because `RenderedView` and 
 **Behavioral constraint NPC-8 (keyboard dismissal on swipe):** Swiping R→L on the raw editor while the keyboard is up (NP-20) results in the keyboard dismissing as part of the animated mode transition. The transition animation naturally removes the raw editor from the screen, which causes the keyboard to resign. The gesture must not deadlock against the keyboard's gesture recognizers. Testing this path is required before the task is marked complete.
 
 **Behavioral constraint NPC-9 (no double-gesture conflict):** When the system interactive-pop gesture (the existing `UIScreenEdgePanGestureRecognizer`) fires on L→R from the raw editor, the SwiftUI `DragGesture` on `RawEditorView` does not also fire. Because the `UIScreenEdgePanGestureRecognizer` starts from the screen edge (first 20 pt), and the `DragGesture` covers the full view, either: (a) `DragGesture` is configured to require the recognizer to fail (achievable by wrapping in `UIViewRepresentable` with a `require(toFail:)` call), or (b) the design relies on the fact that the existing edge recognizer fires first (being more specific), causing the `DragGesture` to cancel. The chosen implementation must verify that only one fires.
+
+**Behavioral constraint NPC-22 (screen-edge priority on rendered view):** When a L→R drag on the rendered view begins near the leading screen edge (within the `UIScreenEdgePanGestureRecognizer` recognition zone, approximately the first 20 pt), the `UIScreenEdgePanGestureRecognizer` takes priority over the SwiftUI `DragGesture` — so a near-edge L→R drag on the rendered view navigates to the file browser, not to raw mode. A L→R drag starting from outside the edge zone navigates to raw mode as intended. *Addresses adversarial F-004.*
 
 ### C4 — RenderedView text selection (long-press system text menu)
 
@@ -213,7 +215,7 @@ If no public API reliably registers Recents for programmatic opens, the design n
 
 **NPC-3** — At Accessibility XL Dynamic Type, the rendered view does not clip, overlap, or produce illegible layout. (NP-21)
 
-**NPC-4** — Code block content is rendered verbatim; no additional line breaks are injected by the preprocessor inside fenced or indented code regions. (NP-3.4, NP-16)
+**NPC-4** — Fenced code block content is rendered verbatim; no additional line breaks are injected by the preprocessor inside fenced code regions (` ``` ` or `~~~` delimiters). Indented code blocks are not exempted — single newlines inside indented text are normalized to hard line breaks, consistent with list-continuation behavior. (NP-3.4, NP-16) *Addresses adversarial F-001.*
 
 **NPC-5** — Inline code span content is untouched by the preprocessor. (NP-3.5, NP-17)
 
@@ -248,6 +250,8 @@ If no public API reliably registers Recents for programmatic opens, the design n
 **NPC-20** — A horizontal drag gesture on the raw editor that the system text engine interprets as selection-extension does not simultaneously trigger a mode switch (minimum velocity / translation distance threshold enforced). (NP-4.5, NP-5.5, NP-12)
 
 **NPC-21** — If the document browser is not in the navigation stack when L→R fires (NP-19), the app does not crash; the swipe is a no-op or navigates to the nearest valid parent.
+
+**NPC-22** — A L→R drag on the rendered view that begins within the leading screen-edge zone (approx. first 20 pt) is claimed by the `UIScreenEdgePanGestureRecognizer` (navigating to the file browser), not by the SwiftUI `DragGesture` (raw mode). The `DragGesture` fires only for drags starting outside the edge zone. (NP-6.5) *Addresses adversarial F-004.*
 
 ---
 
