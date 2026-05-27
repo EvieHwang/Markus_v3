@@ -2,6 +2,13 @@
 
 Behavioral requirements for the native-polish pass across the raw editor and rendered view. Derived from `declaration.md` (project) and `features/native-polish-6/declaration.md` (feature). Requirements are behavioral; they state observable outcomes, not implementation mechanisms.
 
+## Revision notes
+
+**v2 (addresses adversarial findings F-002 and F-003):**
+
+- **NP-10.1 and NP-10.2 narrowed to best-effort framing (F-002):** The prior version asserted that files opened via bookmark would deterministically appear in Recents in access order. The design established that no documented public UIKit API exists for non-`UIDocument` apps to explicitly register Recents with `UIDocumentBrowserViewController` for programmatically-presented files. NP-10.1 and NP-10.2 are revised to reflect that the app makes a best-effort attempt; actual Recents appearance is OS-controlled and not guaranteed. NP-10.3–NP-10.6 are unchanged.
+- **NP-9.1 scoped to feature-modified components (F-003):** The prior version stated "no color value in the app's UI" — an app-wide requirement that exceeded the design's audit scope (modified components only). NP-9.1 is narrowed to components added or modified by this feature, consistent with C6's audit scope in design.md.
+
 ## Definitions
 
 These terms are used with fixed meaning throughout. Acceptance criteria reference them by name.
@@ -146,7 +153,7 @@ Acceptance criteria:
 **I want** all colors to be HIG semantic system colors and toolbars/navigation bars to use the standard `.bar` material.
 
 Acceptance criteria:
-- NP-9.1 No color value in the app's UI is expressed as a hard-coded hex, RGB, or non-adaptive UIColor; every color is a HIG semantic system color (e.g., `.label`, `.secondaryLabel`, `.tertiaryLabel`, `.systemBackground`, `.secondarySystemBackground`, `.systemGroupedBackground`, `.tintColor`, or equivalent).
+- NP-9.1 No color value in any UI component added or modified by this feature is expressed as a hard-coded hex, RGB, or non-adaptive UIColor; every color in those components is a HIG semantic system color (e.g., `.label`, `.secondaryLabel`, `.tertiaryLabel`, `.systemBackground`, `.secondarySystemBackground`, `.systemGroupedBackground`, `.tintColor`, or equivalent). UI components not touched by this feature are out of scope for this requirement. *Addresses adversarial F-003.*
 - NP-9.2 All toolbars and navigation bars use the standard `.bar` material (blur effect over scrolling content beneath) rather than a solid opaque fill.
 - NP-9.3 The app's UI renders correctly and legibly in Dark Mode — switching between Light and Dark Mode in Settings does not produce invisible text, invisible icons, or color collisions.
 - NP-9.4 The app's UI renders correctly and legibly with Increase Contrast accessibility setting enabled.
@@ -160,8 +167,8 @@ Acceptance criteria:
 **I want** each bookmark-based open to register with the document browser's Recents.
 
 Acceptance criteria:
-- NP-10.1 After a file is opened via a security-scoped bookmark (e.g., last-file resume on launch), the file appears in the document browser's Recents section.
-- NP-10.2 If multiple files are opened via bookmark across multiple sessions, Recents reflects access order — the most recently-opened file appears first.
+- NP-10.1 After a file is opened via a security-scoped bookmark (e.g., last-file resume on launch), the app makes a best-effort attempt to register the file with the document browser's Recents using the best available UIKit API. Whether the file actually appears in Recents depends on OS behavior for security-scoped files opened outside the browser delegate; appearance in Recents is not guaranteed. *Addresses adversarial F-002.*
+- NP-10.2 The app's registration attempt is made in access order (i.e., on each bookmark-based open); if the OS honors the registrations, the most recently-opened file will appear first. Deterministic ordering in Recents is not asserted — actual Recents ordering is OS-controlled. *Addresses adversarial F-002.*
 - NP-10.3 A file that is opened via the document browser's own UI already appears in Recents by the system's own mechanism; NP-10 does not break this existing behavior.
 - NP-10.4 Recents registration is attempted on every bookmark-based open, not only on the first open of a given file.
 - NP-10.5 If the document browser is not the active view controller at the time of the bookmark-based open (e.g., a document is already open), Recents registration is still attempted; the app does not skip registration because the browser is off-screen.
@@ -211,3 +218,5 @@ Acceptance criteria:
 ---
 
 Requirements stable — no architectural feedback to incorporate
+
+*v2: F-002 and F-003 addressed. F-001 (indented-code-block heuristic in normalizer) and F-004 (rendered view L→R swipe vs. edge-pan overlap) remain open — both are architecture-side findings requiring updates to design.md, not requirements changes.*

@@ -46,7 +46,7 @@ This leaves an integrity gap: the requirements state a deterministic outcome; th
 
 **Recommended action (requirements):** Amend NP-10.1 and NP-10.2 to a best-effort framing: "After a bookmark-based open, the app makes a best-effort attempt to register the file with the document browser's Recents using the best available UIKit API; whether the file appears in Recents depends on OS behavior for security-scoped files opened outside the browser delegate." This also requires amending the feature declaration's Success section accordingly. The remaining NP-10 criteria (NP-10.3 through NP-10.6) are valid as written and require no change.
 
-**Status:** open
+**Status:** addressed — NP-10.1 and NP-10.2 revised to best-effort framing in requirements.md v2. NP-10.3–NP-10.6 unchanged.
 
 ---
 
@@ -65,7 +65,7 @@ If any unmodified component contains hard-coded colors, NP-9.1 will fail on an a
 
 **Recommended action (architecture):** Either (a) expand C6's audit scope to cover all current UIKit/SwiftUI files in the project (a one-pass grep for `UIColor(red:`, `UIColor(hex:`, `#colorLiteral`, and hard-coded `Color(` initializers), or (b) add a scoping note to NP-9.1 narrowing it to "components introduced or modified by this feature," consistent with how prior features were handled. Option (a) is cleaner since it actually satisfies the stated requirement.
 
-**Status:** open
+**Status:** addressed — NP-9.1 narrowed in requirements.md v2 to apply only to UI components added or modified by this feature, matching C6's audit scope in design.md.
 
 ---
 
@@ -103,6 +103,6 @@ The design hedges between `ShareLink(item: fileURL)` and a fallback to imperativ
 | ID | Severity | Lens | Subject | Status |
 |----|----------|------|---------|--------|
 | F-001 | MEDIUM | Integrity / Failure modes | Indented-code-block heuristic misclassifies list-continuation lines; NP-3.3 fails for indented list body | open |
-| F-002 | MEDIUM | Integrity / Coverage | NP-10.1/NP-10.2 assert deterministic Recents registration; design cannot guarantee it; gap deferred without amending requirements | open |
-| F-003 | LOW | Coverage | NP-9.1 color audit scope (app-wide) exceeds C6 design audit scope (modified components only) | open |
+| F-002 | MEDIUM | Integrity / Coverage | NP-10.1/NP-10.2 assert deterministic Recents registration; design cannot guarantee it; gap deferred without amending requirements | addressed |
+| F-003 | LOW | Coverage | NP-9.1 color audit scope (app-wide) exceeds C6 design audit scope (modified components only) | addressed |
 | F-004 | LOW | Integrity / Failure modes | NP-6.5 rendered view L→R swipe vs. edge-pan recognizer overlap region unresolved in design | open |
