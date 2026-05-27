@@ -5,6 +5,10 @@ struct RenderedView: View {
     let text: String
     let onTap: (Double?) -> Void
     @Binding var pendingScrollAnchor: ScrollAnchor?
+    /// NP-6: L→R swipe handler. Called when the gesture passes the
+    /// `SwipeGestureDecision.detect` thresholds with `.leftToRight` direction
+    /// and the start point is outside the system edge-pan zone (NPC-22).
+    let onSwipeToRaw: (() -> Void)?
 
     @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var contentHeight: CGFloat = 0
@@ -15,18 +19,25 @@ struct RenderedView: View {
     // up the new preferred body size via UIFont.preferredFont(forTextStyle: .body).
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    init(text: String, onTap: @escaping (Double?) -> Void, pendingScrollAnchor: Binding<ScrollAnchor?> = .constant(nil)) {
+    init(text: String,
+         onTap: @escaping (Double?) -> Void,
+         pendingScrollAnchor: Binding<ScrollAnchor?> = .constant(nil),
+         onSwipeToRaw: (() -> Void)? = nil) {
         self.text = text
         self.onTap = onTap
         self._pendingScrollAnchor = pendingScrollAnchor
+        self.onSwipeToRaw = onSwipeToRaw
     }
 
     var body: some View {
         ScrollView {
             // T-005: normalize single-newlines to hard line breaks (NP-3) before render.
             // T-004: apply MarkdownThemeFactory theme so body text scales with Dynamic Type.
+            // T-008 (NP-7): .textSelection(.enabled) gives the long-press → system
+            // text menu (Copy / Select All) at non-link positions.
             Markdown(MarkdownLineBreakNormalizer.normalize(text))
                 .markdownTheme(MarkdownThemeFactory.makeTheme())
+                .textSelection(.enabled)
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
@@ -61,6 +72,23 @@ struct RenderedView: View {
         .animation(.easeIn(duration: 0.15), value: pendingScrollAnchor == nil)
         .onChange(of: contentHeight) { _, _ in applyAnchorIfReady() }
         .onChange(of: pendingScrollAnchor) { _, _ in applyAnchorIfReady() }
+        // T-007 (NP-6): L→R swipe on rendered → raw mode. .simultaneousGesture
+        // so vertical scroll and tap continue to function normally; the
+        // SwipeGestureDecision helper handles the conflict guards (NPC-18,
+        // NPC-19, NPC-20, NPC-22).
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    let direction = SwipeGestureDecision.detect(
+                        translation: value.translation,
+                        velocity: value.velocity,
+                        startX: value.startLocation.x
+                    )
+                    if direction == .leftToRight {
+                        onSwipeToRaw?()
+                    }
+                }
+        )
     }
 
     @MainActor

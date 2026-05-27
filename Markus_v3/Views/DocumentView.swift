@@ -19,6 +19,8 @@ struct DocumentView: View {
     @State private var pendingRawAnchor: ScrollAnchor?
     @State private var pendingRenderedAnchor: ScrollAnchor?
     @State private var currentDisplayURL: URL?
+    /// T-008 / NP-8: drives the UIActivityViewController share sheet.
+    @State private var isShareSheetPresented = false
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.undoManager) private var undoManager
@@ -60,7 +62,8 @@ struct DocumentView: View {
                             pendingRawAnchor = ScrollAnchor(fractionalY: fractionalY ?? 0)
                             switchTo(.rendered, target: .raw)
                         },
-                        pendingScrollAnchor: $pendingRenderedAnchor
+                        pendingScrollAnchor: $pendingRenderedAnchor,
+                        onSwipeToRaw: { switchToRawFromSwipe() }
                     )
                 case .raw:
                     RawEditorView(
@@ -68,7 +71,8 @@ struct DocumentView: View {
                         coordinator: coordinator,
                         scrollState: rawScrollState,
                         pendingScrollAnchor: $pendingRawAnchor,
-                        focusOnAppear: focusEditorOnAppear
+                        focusOnAppear: focusEditorOnAppear,
+                        onSwipeToRendered: { switchToRenderedFromSwipe() }
                     )
                 }
             }
@@ -88,6 +92,14 @@ struct DocumentView: View {
         // top edge (where SwiftUI would otherwise hide the bar background).
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(.bar, for: .navigationBar)
+        // T-008 / NP-8.2: present UIActivityViewController when the share button
+        // sets isShareSheetPresented. The fileURL guard in presentShareSheet()
+        // ensures we only set it when the file exists on disk (NP-8.6, NPC-12).
+        .sheet(isPresented: $isShareSheetPresented) {
+            if let url = fileURL {
+                ActivityViewRepresentable(activityItems: [url])
+            }
+        }
         .toast($toast)
         .alert(
             alertTitle,
@@ -154,6 +166,44 @@ struct DocumentView: View {
                 .accessibilityLabel("Show rendered")
             }
         }
+        // T-008 / NP-8.1, NP-8.7, NPC-11: share button is present only in
+        // rendered mode and uses the square.and.arrow.up SF Symbol. Tap is
+        // gated by DocumentViewShareConfig.canPresentShare(...) so a missing
+        // or nil URL is a no-op (NP-8.6, NP-14, NPC-12).
+        if DocumentViewShareConfig.shareButtonVisible(mode: mode) {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    presentShareSheet()
+                } label: {
+                    Image(systemName: DocumentViewShareConfig.shareButtonSFSymbol)
+                }
+                .accessibilityLabel("Share")
+                .accessibilityIdentifier("Share")
+            }
+        }
+    }
+
+    /// Tap handler for the share button. Guards against nil URL and missing
+    /// file (NP-8.6, NPC-12). Unsaved buffer edits are preserved — sharing
+    /// uses the disk file, not the in-memory buffer (NP-8.4 / NP-8.5).
+    private func presentShareSheet() {
+        guard DocumentViewShareConfig.canPresentShare(for: fileURL) else { return }
+        isShareSheetPresented = true
+    }
+
+    /// NP-4 / NPC-7: R→L swipe on raw editor → rendered mode. Triggers save
+    /// (preserves unsaved edits) and seeds the rendered scroll anchor from the
+    /// raw editor's current scroll fraction, matching the eye-button path.
+    private func switchToRenderedFromSwipe() {
+        pendingRenderedAnchor = ScrollAnchor(fractionalY: rawScrollState.currentFractionalY)
+        triggerSave()
+        mode = .rendered
+    }
+
+    /// NP-6: L→R swipe on rendered view → raw mode. Same switch logic as the
+    /// tap-to-edit path; no save is triggered (rendered mode does not edit).
+    private func switchToRawFromSwipe() {
+        switchTo(.rendered, target: .raw)
     }
 
     private var displayName: String {
