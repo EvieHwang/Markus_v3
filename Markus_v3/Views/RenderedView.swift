@@ -11,6 +11,10 @@ struct RenderedView: View {
     @State private var viewportHeight: CGFloat = 0
     @State private var scrollOffsetY: CGFloat = 0
 
+    // NP-2.1/NP-2.2: re-render on Dynamic Type size changes so the theme picks
+    // up the new preferred body size via UIFont.preferredFont(forTextStyle: .body).
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     init(text: String, onTap: @escaping (Double?) -> Void, pendingScrollAnchor: Binding<ScrollAnchor?> = .constant(nil)) {
         self.text = text
         self.onTap = onTap
@@ -19,7 +23,10 @@ struct RenderedView: View {
 
     var body: some View {
         ScrollView {
-            Markdown(text)
+            // T-005: normalize single-newlines to hard line breaks (NP-3) before render.
+            // T-004: apply MarkdownThemeFactory theme so body text scales with Dynamic Type.
+            Markdown(MarkdownLineBreakNormalizer.normalize(text))
+                .markdownTheme(MarkdownThemeFactory.makeTheme())
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
