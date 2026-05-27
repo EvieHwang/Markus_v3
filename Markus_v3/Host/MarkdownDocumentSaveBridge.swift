@@ -118,9 +118,21 @@ final class MarkdownDocumentSaveBridge {
         let textToWrite = document.text
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        do {
-            try Data(textToWrite.utf8).write(to: url, options: [.atomic])
-        } catch {
+
+        // Coordinated write so the file provider's metadata catalog (modification
+        // date, etc.) updates and any registered NSFilePresenter is informed.
+        // Mirrors the coordinated-read pattern in ChangeDetector.
+        var coordError: NSError?
+        var writeError: Error?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: [.forReplacing], error: &coordError) { writeURL in
+            do {
+                try Data(textToWrite.utf8).write(to: writeURL, options: [.atomic])
+            } catch {
+                writeError = error
+            }
+        }
+        if coordError != nil || writeError != nil {
             // Save failed. Wave 3 swallows; a follow-up will route this into
             // SaveStatusObserver / the alert path that DocumentView already
             // surfaces. Recorded in features/resume-and-create-2/build-deviations.md.
