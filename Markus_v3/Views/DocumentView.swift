@@ -19,14 +19,6 @@ struct DocumentView: View {
     @State private var pendingRawAnchor: ScrollAnchor?
     @State private var pendingRenderedAnchor: ScrollAnchor?
     @State private var currentDisplayURL: URL?
-    /// T-008 / NP-8: drives the UIActivityViewController share sheet.
-    @State private var isShareSheetPresented = false
-    /// The URL passed to `UIActivityViewController` — a copy of `fileURL`
-    /// living in `FileManager.default.temporaryDirectory`. Sharing the temp
-    /// copy lets `UIActivityViewController` read the file without needing the
-    /// original's security scope to be active (the original may be in Files /
-    /// iCloud / a sync provider).
-    @State private var shareSheetTempURL: URL?
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.undoManager) private var undoManager
@@ -101,16 +93,6 @@ struct DocumentView: View {
         // top edge (where SwiftUI would otherwise hide the bar background).
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(.bar, for: .navigationBar)
-        // T-008 / NP-8.2: present UIActivityViewController on the temp-file copy
-        // staged by presentShareSheet(). Sharing the temp URL (rather than the
-        // original) avoids the security-scope-not-active failure mode of
-        // sharing Files/iCloud-backed URLs (NP-8.4 / NP-8.5: the temp copy is
-        // a snapshot of the last-saved disk file).
-        .sheet(isPresented: $isShareSheetPresented) {
-            if let url = shareSheetTempURL {
-                ActivityViewRepresentable(activityItems: [url])
-            }
-        }
         .toast($toast)
         .alert(
             alertTitle,
@@ -194,31 +176,56 @@ struct DocumentView: View {
         }
     }
 
-    /// Tap handler for the share button. Copies the on-disk file into a temp
-    /// location under its security scope (the original may be a Files / iCloud
-    /// URL whose scope is only valid for the duration of this call) and shares
-    /// the temp URL. Failed copies (file missing, scope denied) silently return
-    /// without presenting (NP-8.6, NP-14). Nil URL is rejected by the config
-    /// gate (NPC-12). Unsaved buffer edits are unaffected — the temp copy is a
-    /// snapshot of the last-saved disk file (NP-8.4 / NP-8.5).
+    /// Tap handler for the share button. Presents `UIActivityViewController`
+    /// imperatively from the top view controller with the original document
+    /// URL as the activity item, and keeps the file's security scope active
+    /// for the lifetime of the activity controller. Sharing the original URL
+    /// (rather than a copy in the app's tmp directory) lets share extensions
+    /// resolve the file through its real file-provider domain — copying to
+    /// tmp first produces a blank share sheet because LaunchServices cannot
+    /// fetch metadata for files in the app sandbox. Nil URL is rejected by
+    /// the config gate (NPC-12). Unsaved buffer edits are unaffected —
+    /// extensions read the last-saved disk file (NP-8.4 / NP-8.5). If the
+    /// file has been deleted, presentation still attempts and the OS surfaces
+    /// the standard "couldn't load" error rather than crashing (NP-8.6 / NP-14).
     private func presentShareSheet() {
         guard DocumentViewShareConfig.canPresentShare(for: fileURL),
-              let url = fileURL else { return }
-
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(url.lastPathComponent)
-        try? FileManager.default.removeItem(at: tempURL)
+              let url = fileURL,
+              let presenter = Self.topPresentedViewController() else { return }
 
         let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-
-        do {
-            try FileManager.default.copyItem(at: url, to: tempURL)
-        } catch {
-            return
+        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        activityVC.completionWithItemsHandler = { _, _, _, _ in
+            if scoped { url.stopAccessingSecurityScopedResource() }
         }
-        shareSheetTempURL = tempURL
-        isShareSheetPresented = true
+
+        // iPad popover anchor — sourceView is required even if we don't have
+        // an exact rect; the system places the popover sensibly given a view.
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: presenter.view.bounds.midX,
+                                        y: 0,
+                                        width: 1,
+                                        height: 1)
+            popover.permittedArrowDirections = [.up]
+        }
+
+        presenter.present(activityVC, animated: true)
+    }
+
+    /// Walks the active scene's window hierarchy to the top-most presented
+    /// view controller. Used so `UIActivityViewController` is presented from
+    /// the editor, not from inside a SwiftUI sheet's hosting context (which
+    /// in iOS 18+ produces a blank activity sheet for file-provider URLs).
+    private static func topPresentedViewController() -> UIViewController? {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
+        guard var top = window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController { top = presented }
+        return top
     }
 
     /// NP-4 / NPC-7: R→L swipe on raw editor → rendered mode. Triggers save
