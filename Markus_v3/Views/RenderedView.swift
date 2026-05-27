@@ -33,11 +33,11 @@ struct RenderedView: View {
         ScrollView {
             // T-005: normalize single-newlines to hard line breaks (NP-3) before render.
             // T-004: apply MarkdownThemeFactory theme so body text scales with Dynamic Type.
-            // T-008 (NP-7): .textSelection(.enabled) gives the long-press → system
-            // text menu (Copy / Select All) at non-link positions.
+            // Note: .textSelection(.enabled) was tried here but produced a non-functional
+            // copy menu on MarkdownUI views (no visible selection, no range copy). Users
+            // who want raw text use the share button or switch to raw mode.
             Markdown(MarkdownLineBreakNormalizer.normalize(text))
                 .markdownTheme(MarkdownThemeFactory.makeTheme())
-                .textSelection(.enabled)
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(

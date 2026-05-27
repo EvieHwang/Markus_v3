@@ -17,11 +17,15 @@ enum DocumentViewShareConfig {
         mode == .rendered
     }
 
-    /// True iff the share sheet can be presented for the given URL — the URL
-    /// is non-nil and the file exists on disk. Used by the share button's tap
-    /// handler as the deleted-file / nil-URL guard (NP-8.6, NPC-12, NP-14).
+    /// True iff the share sheet can be presented for the given URL. We do
+    /// **not** check file existence here: the document URL is typically
+    /// security-scoped (Files / iCloud / sync providers), and
+    /// `FileManager.fileExists` returns `false` for those without the scope
+    /// active — silently blocking the share. The actual deleted-file guard
+    /// lives in the temp-file copy step the caller performs (NP-8.6, NP-14);
+    /// a failed copy returns silently and the sheet does not present. The
+    /// caller is responsible for nil-URL handling via this gate (NPC-12).
     static func canPresentShare(for fileURL: URL?) -> Bool {
-        guard let url = fileURL else { return false }
-        return FileManager.default.fileExists(atPath: url.path)
+        fileURL != nil
     }
 }

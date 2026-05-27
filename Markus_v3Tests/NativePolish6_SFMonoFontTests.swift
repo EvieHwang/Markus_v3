@@ -48,13 +48,15 @@ struct NP1_SFMonoFontTests {
                 "Expected SF Mono font name prefix, got '\(tv.font?.fontName ?? "nil")'")
     }
 
-    // NP-1.2 — fixed prose-appropriate size in [14, 20]
-    @Test("MarkdownEditorTextView has fixed prose size in [14, 20]")
+    // NP-1.2 — prose-appropriate size: 2pt smaller than the current body
+    // Dynamic Type point size (SF Mono's heavier glyphs compensate at -2pt).
+    @Test("MarkdownEditorTextView font size is body Dynamic Type pointSize - 2")
     func rawEditorFontSizeIsProseSize() {
         let tv = MarkdownEditorTextView()
         let size = tv.font?.pointSize ?? 0
-        #expect(size >= 14 && size <= 20,
-                "Expected prose size in [14, 20], got \(size)")
+        let expected = UIFont.preferredFont(forTextStyle: .body).pointSize - 2
+        #expect(size == expected,
+                "Expected body Dynamic Type - 2 = \(expected) pt, got \(size)")
     }
 
     // NP-1.3 — typing attributes carry SF Mono so newly typed text inherits it

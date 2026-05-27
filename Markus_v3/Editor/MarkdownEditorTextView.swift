@@ -22,10 +22,11 @@ final class MarkdownEditorTextView: UITextView {
     }
 
     private func configureAppearance() {
-        // SF Mono at a fixed prose size (NP-1.2 / OOS-2: exempt from Dynamic Type).
-        // Named font keeps the SF Mono guarantee explicit; the system-monospace
-        // fallback is the documented contract when the named face cannot be loaded.
-        let size: CGFloat = 17
+        // SF Mono sized 2pt smaller than the body Dynamic Type size:
+        // SF Mono's fixed-width cells make it visually heavier than SF Pro at
+        // equal point sizes, so stepping it down compensates and the editor
+        // reads at roughly the same density as the rendered view.
+        let size = UIFont.preferredFont(forTextStyle: .body).pointSize - 2
         let monoFont = UIFont(name: "SFMono-Regular", size: size)
             ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
         font = monoFont
