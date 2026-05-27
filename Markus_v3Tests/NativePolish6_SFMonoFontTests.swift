@@ -26,6 +26,7 @@ private func isMonospaced(_ font: UIFont?) -> Bool {
     return font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
 }
 
+@MainActor
 @Suite("NP-1 — SF Mono font in raw editor")
 struct NP1_SFMonoFontTests {
 

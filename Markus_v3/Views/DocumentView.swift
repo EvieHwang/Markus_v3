@@ -82,6 +82,12 @@ struct DocumentView: View {
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
+        // NP-9.2 / NP-9.5: navigation bar uses the standard .bar material so it
+        // blurs the content scrolling beneath it (HIG semantic). Visibility is
+        // pinned to .visible so the material is drawn even when scroll is at the
+        // top edge (where SwiftUI would otherwise hide the bar background).
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.bar, for: .navigationBar)
         .toast($toast)
         .alert(
             alertTitle,
