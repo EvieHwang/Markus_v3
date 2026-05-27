@@ -12,5 +12,5 @@ Valid status values: `pending`, `in-progress`, `complete`, `failed`, `deviation`
 | T-004 | Dynamic Type typography in RenderedView | 2 | complete | e2181d2 |
 | T-005 | Wire MarkdownLineBreakNormalizer into RenderedView | 2 | complete | e2181d2 (atomic with T-004 in RenderedView.swift) |
 | T-006 | HIG semantic colors + .bar material audit | 2 | complete | c600d0d |
-| T-007 | Swipe gesture wiring (C3) | 3 | pending | |
-| T-008 | Share button + long-press text selection (C4 + C5) | 3 | pending | |
+| T-007 | Swipe gesture wiring (C3) | 3 | in-progress | |
+| T-008 | Share button + long-press text selection (C4 + C5) | 3 | in-progress | |
