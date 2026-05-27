@@ -61,9 +61,7 @@ enum LaunchResumeBranch {
     static func resume(into host: BrowserHostController,
                        store: LastFileStore = LastFileStore()) -> Bool {
         guard let url = store.resolveLastOpened() else { return false }
-        // isResumeOpen flags this as a bookmark-based open so the host attempts
-        // Recents registration (NP-10 / design C7).
-        host.presentDocument(at: url, animated: false, isResumeOpen: true)
+        host.presentDocument(at: url, animated: false)
         return true
     }
 
