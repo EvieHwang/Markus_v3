@@ -24,7 +24,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     static weak var activeHost: BrowserHostController?
 
     private var openObserver: DocumentOpenObserver?
-    private var createHandler: CreateDocumentHandler?
 
     func scene(_ scene: UIScene,
                willConnectTo session: UISceneSession,
@@ -44,10 +43,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let openObserver = DocumentOpenObserver(host: host)
         openObserver.install()
         self.openObserver = openObserver
-
-        let createHandler = CreateDocumentHandler(host: host)
-        createHandler.install()
-        self.createHandler = createHandler
 
         window.rootViewController = host
         self.window = window

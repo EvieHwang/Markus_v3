@@ -71,15 +71,26 @@ enum LaunchResumeBranch {
     private static let seededSampleBody = "# Resumed sample\n\nThis file is the seed for resume UI tests.\n"
 
     private static func seedSampleAndRecord(store: LastFileStore) {
-        guard let docs = try? LocalDocumentsFallback.documentsDirectory() else { return }
+        guard let docs = appDocumentsDirectory() else { return }
         let url = docs.appendingPathComponent(seededSampleName)
         try? seededSampleBody.write(to: url, atomically: true, encoding: .utf8)
         store.recordLastOpened(url)
     }
 
     private static func removeSeededSample() {
-        guard let docs = try? LocalDocumentsFallback.documentsDirectory() else { return }
+        guard let docs = appDocumentsDirectory() else { return }
         let url = docs.appendingPathComponent(seededSampleName)
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// App-container Documents directory used by these two UI-test seed
+    /// helpers. See build-deviations.md D-1 for the history of the inlining.
+    private static func appDocumentsDirectory() -> URL? {
+        try? FileManager.default.url(
+            for: .documentDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
     }
 }

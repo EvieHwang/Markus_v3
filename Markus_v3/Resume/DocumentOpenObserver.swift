@@ -3,15 +3,14 @@ import Foundation
 /// Single funnel that records every successful document open into
 /// `LastFileStore` (design C3 / BR-1 / DC-15). Bound to
 /// `BrowserHostController.didOpenDocument` in `SceneDelegate`, which
-/// fires for all three entry paths:
+/// fires for all entry paths:
 ///
 /// - Browser pick / import (`documentBrowser(_:didPickDocumentsAt:)` and
-///   `documentBrowser(_:didImportDocumentAt:toDestinationURL:)`)
-/// - Resume (via `LaunchResumeBranch` calling
-///   `presentDocument(at:animated:)`)
-/// - Newly-created file's first persistence (via
-///   `MarkdownDocumentSaveBridge.onFirstPersist`, which the host
-///   re-routes through `didOpenDocument`)
+///   `documentBrowser(_:didImportDocumentAt:toDestinationURL:)`) — this
+///   includes files just created via the system "+" affordance, which the
+///   framework opens through `didImportDocumentAt` after the template copy
+///   completes (restore-system-create-7 DC-6).
+/// - Resume (via `LaunchResumeBranch` calling `presentDocument(at:animated:)`).
 @MainActor
 final class DocumentOpenObserver {
 

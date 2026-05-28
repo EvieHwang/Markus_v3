@@ -174,21 +174,34 @@ final class ExternalChangeUITests: XCTestCase {
 
     // MARK: - BR-3 — settle-window suppression / no false positives
 
-    // BR-3.5 — the normal single-device create→type→save flow produces zero sheets/banners.
-    func testNormalCreateTypeSaveProducesNoConflictSurfaces() {
-        let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(browserIsVisible(app),
-                      "Browser must be visible after reset before driving the create flow")
-        // The build agent drives create → type → save through the existing create flow.
-        tapCreateDocument(in: app)
+    // BR-3.5 — the normal single-device edit→save flow produces zero sheets/banners.
+    func testNormalCreateTypeSaveProducesNoConflictSurfaces() throws {
+        // Rewritten by restore-system-create-7 (see build-deviations.md D-7).
+        // The original version drove the *custom* create flow whose "+" tap
+        // opened the raw editor directly with keyboard focus. The new system-
+        // create flow shows the system rename UI between "+" and the editor,
+        // and that UI is not reliably driveable in XCUITest. We exercise the
+        // same BR-3.5 settle-window contract — edit → save → no conflict
+        // surfaces — by opening a seeded existing file. We tap the text view
+        // explicitly to bring up the keyboard before typing.
+        let app = launch(["-uitest-seed-last-file"])
+        let rendered = app.descendants(matching: .any).matching(identifier: "RenderedView").firstMatch
+        XCTAssertTrue(rendered.waitForExistence(timeout: 5),
+                      "Seeded file must open into rendered view as the test starting point")
+        rendered.tap()
         let editor = app.textViews.firstMatch
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertTrue(editor.waitForExistence(timeout: 5),
+                      "Tap-to-edit must surface the raw editor")
+        // Tap to focus so typeText has a target with keyboard focus. On iOS
+        // 26 the swap from rendered to raw doesn't auto-focus the text view.
+        editor.tap()
+        _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
         editor.typeText("# A brand new note\nwith a line of prose\n")
         // Allow the 500ms debounce + 2s settle to elapse.
         XCTAssertFalse(conflictSheetIsVisible(app, timeout: 4),
-                       "Normal single-device create+save must never show a conflict sheet (BR-3.5)")
+                       "Normal single-device edit+save must never show a conflict sheet (BR-3.5)")
         XCTAssertFalse(deletionBannerIsVisible(app, timeout: 1),
-                       "Normal single-device create+save must never show a deletion banner (BR-3.5)")
+                       "Normal single-device edit+save must never show a deletion banner (BR-3.5)")
     }
 
     // BR-3.6 — ordinary single-device edit/save loop produces zero conflict sheets.

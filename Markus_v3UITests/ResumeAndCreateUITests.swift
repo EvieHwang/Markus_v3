@@ -103,69 +103,17 @@ final class ResumeAndCreateUITests: XCTestCase {
                       "Back navigation must not clear the last-opened reference (DC-15)")
     }
 
-    // MARK: - Story B: New file creation (C4 / T-007)
-
-    func testCreateDocumentOpensUntitledMd() {
-        let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(browserIsVisible(app))
-        tapCreateDocument(in: app)
-        XCTAssertTrue(app.navigationBars["Untitled"].waitForExistence(timeout: 5),
-                      "Create Document must produce a file named Untitled.md")
-    }
-
-    func testNewFileOpensInRawEditor() {
-        let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(browserIsVisible(app))
-        tapCreateDocument(in: app)
-        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5),
-                      "A new file must open straight into the raw editor")
-        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "RenderedView").firstMatch.exists,
-                       "A new file must not open in the rendered view")
-    }
-
-    func testNewFileEditorHasKeyboardFocus() {
-        let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(browserIsVisible(app))
-        tapCreateDocument(in: app)
-        let editor = app.textViews.firstMatch
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        XCTAssertTrue(editor.hasKeyboardFocus,
-                      "A new file's editor must be first responder with the keyboard active")
-    }
-
-    func testUntypedNewFileDoesNotConsumeName() {
-        let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(browserIsVisible(app))
-
-        tapCreateDocument(in: app)
-        XCTAssertTrue(app.navigationBars["Untitled"].waitForExistence(timeout: 5))
-        app.navigationBars.buttons["Back"].tap()
-        XCTAssertTrue(browserIsVisible(app))
-
-        tapCreateDocument(in: app)
-        XCTAssertTrue(app.navigationBars["Untitled"].waitForExistence(timeout: 5),
-                      "Abandoning an untyped new file must not consume the Untitled name (DC-9)")
-        XCTAssertFalse(app.navigationBars["Untitled 2"].exists)
-    }
-
-    func testTypedNewFilePersists() throws {
-        throw XCTSkip("Requires on-disk container inspection of the persisted Untitled[ n].md; "
-                      + "build agent verifies the file exists with typed content at the resolved path.")
-    }
-
-    func testTypedNewFileBecomesLastOpened() throws {
-        throw XCTSkip("Requires terminate+relaunch with the newly persisted file as the resume target; "
-                      + "build agent wires the fixture (depends on BR-14 persistence).")
-    }
-
-    func testFirstLaunchThenCreate() {
-        let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(browserIsVisible(app), "Fresh install lands in the browser (BR-4)")
-        tapCreateDocument(in: app)
-        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5),
-                      "Create from a first-ever-launch browser opens a new file in the raw editor")
-        XCTAssertTrue(app.navigationBars["Untitled"].exists)
-    }
+    // MARK: - Story B (removed by restore-system-create-7)
+    //
+    // The custom create flow (Untitled.md naming, deferred-write, custom
+    // routing of `documentBrowser(_:didRequestDocumentCreationWithHandler:)`)
+    // is gone. New-file creation now uses the system browser's "+" affordance
+    // and inline rename UI. The replacement coverage lives in
+    // `SystemCreateUITests.swift`. The original tests asserted observables
+    // that no longer hold (e.g., `app.navigationBars["Untitled"]`, untyped-
+    // abandon name-non-consumption) and have been removed wholesale rather
+    // than rewritten to fit the new flow — per restore-system-create-7
+    // dag.md T-006.
 
     // MARK: - Story C: Back navigation (C8 / T-008)
 
@@ -194,34 +142,9 @@ final class ResumeAndCreateUITests: XCTestCase {
         XCTAssertTrue(browserIsVisible(app), "Edge-swipe-back must reveal the browser")
     }
 
-    func testBackFromUntypedNewFileLeavesNoFile() {
-        let app = launch(["-uitest-reset-last-file"])
-        XCTAssertTrue(browserIsVisible(app))
-        tapCreateDocument(in: app)
-        XCTAssertTrue(app.navigationBars["Untitled"].waitForExistence(timeout: 5))
-        app.navigationBars.buttons["Back"].tap()
-        XCTAssertTrue(browserIsVisible(app))
-        tapCreateDocument(in: app)
-        XCTAssertTrue(app.navigationBars["Untitled"].waitForExistence(timeout: 5))
-    }
-
-    // MARK: - Helper
-
-    private func tapCreateDocument(in app: XCUIApplication) {
-        // UIDocumentBrowserViewController vends the create affordance with
-        // varying labels across iOS versions. Try a few.
-        let candidates: [XCUIElement] = [
-            app.buttons["Create Document"],
-            app.cells["Create Document"],
-            app.buttons["New Document"],
-            app.buttons["Create"]
-        ]
-        for c in candidates where c.waitForExistence(timeout: 3) {
-            c.tap()
-            return
-        }
-        XCTFail("Could not find Create Document affordance")
-    }
+    // testBackFromUntypedNewFileLeavesNoFile removed alongside the Story B
+    // create-flow tests — DC-9 (deferred-write / untyped-abandon name non-
+    // consumption) is no longer a Markus concern. See SystemCreateUITests.
 }
 
 private extension XCUIElement {
