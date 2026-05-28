@@ -1,5 +1,15 @@
 # Requirements: accessibility-8
 
+## Changelog
+
+**Revision 1 (adversarial round 1):**
+- AC-2.2 revised and AC-2.5 added: VoiceOver heading rotor must behaviorally navigate to heading elements (not just trait presence). *Addresses adversarial F-002.*
+- AC-4.9 added: VoiceOver focus must move to an appropriate document element when the deletion banner disappears. *Addresses adversarial F-003.*
+- AC-4.6 revised: "Dismiss" deletion banner label must be context-specific (e.g., "Dismiss file deleted notice") rather than the bare word "Dismiss". *Addresses adversarial F-004.*
+- AC-3.6 added: Computed raw editor font size has a minimum floor of 1pt. *Addresses adversarial F-005.*
+
+---
+
 ## Overview
 
 Five focused accessibility fixes across the rendered view, raw editor, mode switcher, and conflict/lifecycle UI. Each fix closes a concrete gap against WCAG 2.1 AA and Apple HIG.
@@ -69,9 +79,10 @@ As a VoiceOver user using the headings rotor, body paragraphs, list items, and c
 ### Acceptance criteria
 
 - AC-2.1: Given a rendered document containing at least one heading of each level (H1–H6), each heading view's accessibility traits include `.isHeader`.
-- AC-2.2: Given VoiceOver is enabled and the headings rotor is selected, swiping down with the rotor set to "Headings" moves focus sequentially through each H1–H6 element in document order.
+- AC-2.2: Given VoiceOver is enabled and the headings rotor is selected, swiping down with the rotor set to "Headings" moves focus sequentially through each H1–H6 element in document order — verified by an XCUITest that queries for heading-trait elements and confirms the expected count and order match the document's heading structure. *Addresses adversarial F-002.*
 - AC-2.3: Given a rendered document that contains headings and body paragraphs, body paragraph views do not carry the `.isHeader` trait.
 - AC-2.4: Heading trait assignment does not alter visual rendering — font size, weight, and margins remain as specified by the existing `makeTheme()` configuration.
+- AC-2.5: Given a rendered document with H1–H6 headings, an XCUITest using the VoiceOver headings rotor (or equivalent `XCUIElementQuery` for elements with `.isHeader` trait) returns elements in the same order and count as the headings in the source document. A test that passes solely by checking modifier application on the view returned by the builder is insufficient — the criterion requires end-to-end behavioral verification that the trait reaches the element VoiceOver focuses. *Addresses adversarial F-002.*
 
 ### Edge cases and failure modes
 
@@ -108,6 +119,7 @@ As a user who begins editing a document in the raw editor and then changes the s
 - AC-3.3: Given the user changes the text size while editing (with an active cursor), after the resize the document text is unchanged and the cursor remains in the document.
 - AC-3.4: Given the raw editor is not visible (rendered mode is active) when the text size changes, switching to raw mode after the change shows the updated font size without requiring additional action.
 - AC-3.5: The notification observer is removed when the view is deallocated (no retain cycle or dangling observer).
+- AC-3.6: The computed raw editor font size (i.e., `UIFont.preferredFont(forTextStyle: .body).pointSize - 2`) has a minimum floor of 1pt regardless of the Dynamic Type category. If the formula yields a value less than 1pt, the font is set to 1pt. This ensures WCAG 1.4.4 compliance is unconditional for any current or future Dynamic Type category. *Addresses adversarial F-005.*
 
 ### Edge cases and failure modes
 
@@ -137,10 +149,13 @@ As a VoiceOver user presented with the conflict sheet, when VoiceOver focuses ea
 As a VoiceOver user considering the "Discard Mine" option, VoiceOver announces a hint that explains the action is irreversible and that local edits will be lost.
 
 **US-4.3 — VoiceOver reads deletion banner button names**
-As a VoiceOver user presented with the deletion banner, when VoiceOver focuses the "Save As" and "Dismiss" buttons, each announces a meaningful label.
+As a VoiceOver user presented with the deletion banner, when VoiceOver focuses the "Save As" and "Dismiss" buttons, each announces a meaningful label that identifies the specific action and context.
 
 **US-4.4 — UI test identifiers are preserved**
 As a developer running UI tests, the `.accessibilityIdentifier` values `ConflictKeepMine`, `ConflictKeepTheirs`, `ConflictDiscardMine`, `DeletionBannerSaveAs`, and `DeletionBannerDismiss` remain unchanged on the respective buttons.
+
+**US-4.5 — VoiceOver focus moves to document after banner dismissal**
+As a VoiceOver user whose focus is on the deletion banner when it is programmatically dismissed (e.g., after "Dismiss" is tapped or "Save As" resolves), VoiceOver focus moves to an appropriate element in the document rather than remaining stuck on the now-invisible banner controls.
 
 ### Acceptance criteria
 
@@ -149,14 +164,15 @@ As a developer running UI tests, the `.accessibilityIdentifier` values `Conflict
 - AC-4.3: The "Discard Mine" button has `.accessibilityLabel` set to a non-empty string that communicates discarding the user's local changes (e.g., "Discard My Changes").
 - AC-4.4: The "Discard Mine" button has `.accessibilityHint` set to a non-empty string that explains the action is irreversible and local edits will be lost (e.g., "Your local edits cannot be recovered after this action.").
 - AC-4.5: The "Save As" button in the deletion banner has `.accessibilityLabel` set to a non-empty string that communicates saving the document to a new location (e.g., "Save to New Location").
-- AC-4.6: The "Dismiss" button in the deletion banner has `.accessibilityLabel` set to a non-empty string that communicates dismissing the file-deleted notice (e.g., "Dismiss").
+- AC-4.6: The "Dismiss" button in the deletion banner has `.accessibilityLabel` set to a context-specific string that identifies what is being dismissed — not the bare word "Dismiss" alone. The label must name the context (e.g., "Dismiss file deleted notice"). This satisfies WCAG 2.4.6 (Headings and Labels), which requires labels to be descriptive enough to identify the control's purpose. *Addresses adversarial F-004.*
 - AC-4.7: All five `.accessibilityIdentifier` values listed in US-4.4 are present on the respective buttons and unchanged from their current values.
 - AC-4.8: The conflict sheet's title text ("This file changed on another device") and subtitle remain unchanged in their visual presentation and are accessible to VoiceOver.
+- AC-4.9: When the deletion banner is dismissed programmatically (whether by the "Dismiss" button action, by a "Save As" resolution, or by any other programmatic path), a `UIAccessibility.post(notification: .layoutChanged, ...)` or `.screenChanged` notification is posted so that VoiceOver focus moves to a defined element in the document (e.g., the rendered or raw content view) rather than remaining on the now-invisible banner controls. VoiceOver must not be in a stuck-focus or focus-on-invisible-element state after banner dismissal. *Addresses adversarial F-003.*
 
 ### Edge cases and failure modes
 
 - EC-4.1: The conflict sheet is displayed and VoiceOver is not running: the labels and hints are present in the accessibility tree but have no visible effect on sighted users.
-- EC-4.2: The deletion banner appears, the user changes the VoiceOver focus to the banner, and then the banner is dismissed programmatically: VoiceOver focus returns to the document without a crash or stuck-focus state.
+- EC-4.2: The deletion banner appears, the user changes the VoiceOver focus to the banner, and then the banner is dismissed programmatically: VoiceOver focus returns to the document without a crash or stuck-focus state. (Mechanism: AC-4.9's notification handles this.)
 - EC-4.3: The conflict sheet is presented over the raw editor; VoiceOver focus lands on sheet buttons first, not on the editor content behind the sheet.
 
 ### Out of scope
