@@ -61,10 +61,6 @@ struct RenderedView: View {
             let fractional = contentHeight > 0 ? Double(contentY / contentHeight) : 0
             onTap(fractional)
         }
-        .environment(\.openURL, OpenURLAction { _ in
-            onTap(nil)
-            return .discarded
-        })
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Edit") { onTap(nil) }
         .accessibilityIdentifier("RenderedView")
@@ -109,6 +105,5 @@ struct RenderedView: View {
 
     @MainActor func simulateLinkTap(_ url: URL) {
         _ = url
-        onTap(nil)
     }
 }

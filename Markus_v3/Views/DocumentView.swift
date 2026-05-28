@@ -173,6 +173,7 @@ struct DocumentView: View {
                     pendingRenderedAnchor = ScrollAnchor(fractionalY: rawScrollState.currentFractionalY)
                     triggerSave()
                     mode = .rendered
+                    postModeAnnouncement(for: .rendered)
                 } label: {
                     Image(systemName: "eye")
                 }
@@ -255,6 +256,7 @@ struct DocumentView: View {
         pendingRenderedAnchor = ScrollAnchor(fractionalY: rawScrollState.currentFractionalY)
         triggerSave()
         mode = .rendered
+        postModeAnnouncement(for: .rendered)
     }
 
     /// NP-6: L→R swipe on rendered view → raw mode. Same switch logic as the
@@ -333,6 +335,25 @@ struct DocumentView: View {
             triggerSave()
         }
         mode = target
+        postModeAnnouncement(for: target)
+    }
+
+    /// AC-5.1 / AC-5.2 / AC-5.4: post a VoiceOver announcement when the mode
+    /// changes due to a user action. Posted directly at each triggering call
+    /// site (this helper, the toolbar handler, `switchToRenderedFromSwipe`)
+    /// rather than in an `.onChange(of: mode)` observer, so initial-mode
+    /// assignment on `onAppear` cannot trigger an announcement (AC-5.5, F-001).
+    private func postModeAnnouncement(for target: DocumentMode) {
+        let argument: String
+        switch target {
+        case .raw:
+            argument = String(localized: "Editing mode",
+                              comment: "VoiceOver announcement when switching to raw edit mode")
+        case .rendered:
+            argument = String(localized: "Preview mode",
+                              comment: "VoiceOver announcement when switching to rendered preview mode")
+        }
+        UIAccessibility.post(notification: .announcement, argument: argument)
     }
 
     private func triggerSave() {
