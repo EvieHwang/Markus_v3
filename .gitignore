@@ -14,6 +14,12 @@
 .env.*
 !.env.example
 
+# TLS keys and certificates (e.g. Tailscale `tailscale cert` output)
+*.key
+*.crt
+*.pem
+*.ts.net.*
+
 # Python
 __pycache__/
 *.py[cod]
