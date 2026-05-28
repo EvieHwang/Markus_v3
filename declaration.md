@@ -43,3 +43,11 @@ Someone who already has markdown files and already knows where they live — a w
 5. ~~**New file creation** — create a new file in the directory of the last-opened file, auto-incremented `Untitled.md` naming. Touches: File access layer, Conflict & lifecycle UI, Document browser entry.~~ *(superseded)*
 6. **Native editing polish** — list continuation, smart-quote/dash suppression, autocorrect on, `Cmd+/` shortcut, swipe gestures. Touches: Raw editor, Mode switcher.
 7. **Accessibility pass** — VoiceOver labels and traits, Dynamic Type, heading/list/link semantics in rendered view, "Edit" accessibility action. Touches: Rendered view, Raw editor, Mode switcher, Conflict & lifecycle UI.
+
+### Post-shipping hardening
+
+Added after the initial Roadmap was fully built, in response to a post-shipping audit. Each item closes a specific silent-failure path identified by the audit; together they harden the file lifecycle without changing product surface.
+
+8. **Save-bridge hardening** — surface write errors instead of swallowing; coordinate writes with `NSFileCoordinator`; refresh buffer on reconciliation lift. Touches: File access layer, Conflict & lifecycle UI.
+9. **Open-path hardening** — labeled handling of non-UTF-8 files; visible load-error surface from the document browser; hard ceiling on file size to prevent OOM. Touches: Document model, Document browser entry, Conflict & lifecycle UI.
+10. **Resume & detector hardening** — fall back to bookmark when recorded resume path has moved; guarantee initial coordinated read precedes live presenter callbacks. Touches: File access layer.
