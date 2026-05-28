@@ -51,3 +51,15 @@ Added after the initial Roadmap was fully built, in response to a post-shipping 
 8. **Save-bridge hardening** — surface write errors instead of swallowing; coordinate writes with `NSFileCoordinator`; refresh buffer on reconciliation lift. Touches: File access layer, Conflict & lifecycle UI.
 9. **Open-path hardening** — labeled handling of non-UTF-8 files; visible load-error surface from the document browser; hard ceiling on file size to prevent OOM. Touches: Document model, Document browser entry, Conflict & lifecycle UI.
 10. **Resume & detector hardening** — fall back to bookmark when recorded resume path has moved; guarantee initial coordinated read precedes live presenter callbacks. Touches: File access layer.
+
+### Backlog
+
+Candidate work not yet scheduled. Captured here so the next planning pass can sequence it; order below is not commitment order.
+
+11. **iPad universal — responsive layout** — add a max content width to the rendered view so prose stays readable at iPad / Mac window widths; verify the raw editor and conflict sheet relayout cleanly at slide-over widths (~320pt) and at full iPad widths (~1366pt). Touches: Rendered view, Raw editor, Conflict & lifecycle UI.
+12. **Keyboard shortcut suite** — wire `UIKeyCommand` for the shortcuts a prose writer expects on a hardware keyboard: ⌘B bold, ⌘I italic, ⌘K link insertion, ⌘N new file, ⌘O open (returns to browser), alongside the already-planned ⌘/ mode toggle. Touches: Raw editor, Mode switcher, and the host.
+13. **Pointer and hover interactions** — add `UIHoverGestureRecognizer` / `UIPointerInteraction` to the tap-to-edit surface, the mode-switch control, and the toolbar so the app feels native under iPad trackpad and Mac (Designed for iPad). Touches: Rendered view, Mode switcher.
+14. **Mac-aware entry flow** — when running on Mac (Catalyst or Designed for iPad), bypass the browser host on launch and open the last document directly via the resume store, since Mac users expect File → Open and Finder integration rather than a browser screen. Touches: Host, Resume.
+15. **Info.plist hardening for submission** — set `ITSAppUsesNonExemptEncryption = false` (removes the per-upload prompt); change `LSHandlerRank` from `Owner` to `Alternate` on the Markdown document type (honest given the "no proprietary format" stance); remove `LSRequiresIPhoneOS` once iPad is enabled; add an iPad-specific `UISupportedInterfaceOrientations~ipad` array covering all four orientations. Touches: App/Info.plist.
+16. **App icon asset catalog cleanup** — `AppIcon.appiconset/Contents.json` currently references the 1024 PNG only for the iOS light slot and leaves dark, tinted, and 12 macOS slots empty. Either strip the unused slots (iPhone-only build) or wire up the full set if shipping iPad/Mac. Touches: Assets.xcassets.
+17. **Launch screen content** — replace the empty `UILaunchScreen` dict with a minimal storyboard or at least a background color matching the rendered-view background, so the blank flash on cold launch goes away. Touches: App/Info.plist (and a new launch storyboard file if we go that route).
