@@ -124,3 +124,7 @@ The synchronous-vs-asynchronous nature of `start()` is an implementation choice 
 2. **Reachability check after bookmark fallback (BR-2/BR-4).** When the recorded path is missing and the bookmark resolves, design must specify the reachability probe applied to the bookmark-resolved URL: `FileManager.fileExists(atPath:)` inside a `startAccessingSecurityScopedResource` block (mirroring the current "no recorded path" fallback branch) is the obvious choice but should be confirmed. Design should also specify whether the recorded path string is updated to the bookmark-resolved path on a successful fallback, or left untouched until the next `recordLastOpened` — the declaration's "Out of scope: persisting any additional resume metadata" leans toward the latter, but this is a design call.
 
 3. **Behavior of `displayURL` during the start gate (BR-8 interaction with `init`).** `displayURL` is set in `init` and is the URL the initial coordinated read uses. Design should confirm that no path other than the constructor seeds `displayURL` before `start()` runs, so the initial read is unambiguous about which URL it reads.
+
+---
+
+Requirements stable — no architectural feedback to incorporate (the three deferred questions above were resolved in `design.md` DC-3/DC-4 (Q2), DC-6/DC-7/DC-8 (Q1), and DC-9 (Q3) without changes to requirement text).
