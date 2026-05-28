@@ -2,7 +2,22 @@
 
 Coverage map from `requirements.md` (BR-1 through BR-16) and `design.md` (DC-1 through DC-11) to the spec tests under `features/open-path-hardening-10/tests/`.
 
-Task ID column is intentionally absent — the DAG does not yet exist. `/dag` (Stage 5) will populate task tagging in a later pass.
+Authoritative task → test mapping is in §"Task → tests" below; it was populated by `/dag` (Stage 5) against `dag.md`. The BR/DC tables that follow remain the human-readable coverage view.
+
+## Task → tests
+
+Authoritative mapping from `dag.md` task IDs to the spec tests under
+`features/open-path-hardening-10/tests/` whose acceptance condition each task
+satisfies. Tests are reference specs — the build agent mirrors them into the
+Xcode test target when picking up the task. Every task has ≥1 test.
+
+| Task | Tests |
+|------|-------|
+| T-001 — Extend `ActiveAlert` with the four open-path failure cases + user-facing copy | `AlertHostAndScopeTests.allFourFailureCasesAreActiveAlertCases`; `AlertHostAndScopeTests.failureSurfacesReuseActiveAlertChannel`; `LoadFailureMappingTests.alertTextsAreDistinguishablePerCase` |
+| T-002 — Introduce `OpenPathSizeCeiling` with the 20 MiB inclusive constant | `SizeCeilingTests.ceilingIsAFixedConstantHonoringDesignValue`; `SizeCeilingTests.exactlyAtCeilingIsAccepted`; `SizeCeilingTests.oneByteOverCeilingIsRejected` |
+| T-003 — `MarkdownDocument` strict UTF-8 decode with BOM retention + render-time suppression | `HappyPathOpenTests.bufferMatchesOnDiskAfterNormalization`; `HappyPathOpenTests.bomPrefixedFileOpensAndRetainsBomBytes`; `HappyPathOpenTests.bomIsNotRenderedAsVisibleCharacter`; `HappyPathOpenTests.noEditSaveOfBomFileIsByteIdentical`; `HappyPathOpenTests.emptyFileOpensWithEmptyBuffer`; `HappyPathOpenTests.happyPathLatencyIsWithinBudget`; `NonUTF8DecodePolicyTests.noPresentedBufferContainsReplacementCharacter` |
+| T-004 — Open-path classification + failure mapper + load-result enum | `LoadFailureMappingTests.permissionDeniedErrorMapsToPermissionAlert`; `LoadFailureMappingTests.noSuchFileErrorMapsToMovedRemovedAlert`; `LoadFailureMappingTests.unknownReadErrorMapsToGenericAlert`; `LoadFailureMappingTests.callerConvertsEveryFailureToAlert`; `SizeCeilingTests.sizeCheckPrecedesDecodeForOversizedBinaryFiles`; `SizeCeilingTests.oversizedFileIsRejectedWithoutFullRead`; `NonUTF8DecodePolicyTests.nonUTF8LatinFileSurfacesEncodingAlertAndPresentsNoDocument`; `NonUTF8DecodePolicyTests.utf16BomFileSurfacesEncodingAlert`; `NonUTF8DecodePolicyTests.mixedEncodingFileSurfacesEncodingAlertAndPresentsNoTruncatedDocument`; `NonUTF8DecodePolicyTests.everyNonUTF8InputProducesAnAlertNotASilentReturn` |
+| T-005 — Integrate the pipeline into `BrowserHostController` (alert host, scope, resume gate, prior-document safety) | `HappyPathOpenTests.wellFormedUTF8OpensWithNoAlert`; `AlertHostAndScopeTests.coldLaunchFailedPickShowsAlertWithNoDocumentPresented`; `AlertHostAndScopeTests.scopeIsReleasedOnEveryTerminalPath`; `AlertHostAndScopeTests.repeatedFailuresOnSameUrlAreIdempotentAndDoNotLeakScope`; `AlertHostAndScopeTests.priorDocumentSurvivesFailedSecondPick`; `LoadFailureMappingTests.everyNamedFailureCaseSurfacesAnAlert`; `LoadFailureMappingTests.dismissReturnsToPickableBrowser`; `LoadFailureMappingTests.fileVanishingMidLoadProducesMovedOrPermissionAlert`; `LoadFailureMappingTests.symlinkToMissingTargetSurfacesMovedRemovedAlert`; `LoadFailureMappingTests.directoryURLSurfacesAFailureAlertNotACrash`; `LoadFailureMappingTests.iCloudDownloadFailedIsNotReplacedByThisFeaturesSurfaces`; `NonUTF8DecodePolicyTests.encodingAlertIsDismissableAndReturnsToPickableBrowser`; `SizeCeilingTests.oversizedFileSurfacesTooLargeAlertAndPresentsNoDocument`; `ResumeGateTests.resumeUrlGoesThroughTheSameOpenGate`; `ResumeGateTests.oversizedResumeTargetSurfacesTooLargeAlert`; `ResumeGateTests.nonUTF8ResumeTargetSurfacesEncodingAlert`; `ResumeGateTests.vanishedResumeTargetSurfacesMovedRemovedOrIsRescuedByBookmarkFallback`; `ResumeGateTests.bookmarkFallbackResolvesBeforeOpenPipelineObservesUrl`; `OpenPathSilentNoOpUITests.test_wellFormedFile_opensWithoutAlert`; `OpenPathSilentNoOpUITests.test_everyFailureClass_showsAlertNoSilentReturn`; `OpenPathSilentNoOpUITests.test_coldLaunchFailedPick_showsAlertOnBrowserHost` |
 
 ## Test files
 
