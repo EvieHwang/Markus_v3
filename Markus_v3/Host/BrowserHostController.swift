@@ -4,46 +4,34 @@ import UniformTypeIdentifiers
 
 /// `UIDocumentBrowserViewController` subclass + delegate that hosts the system
 /// document browser as the app's scene root (design C0). Replaces the SwiftUI
-/// `DocumentGroup` host. Owns three Wave-4 control points the previous host
-/// did not expose:
+/// `DocumentGroup` host.
 ///
-/// - **`createDocumentRequestHandler`** — bound by T-007 to handle
-///   `documentBrowser(_:didRequestDocumentCreationWithHandler:)`. Lets the
-///   create flow choose the document's URL (target directory + name) and
-///   defer the on-disk write until first keystroke (design DC-9 / DC-12).
+/// Two Wave-4 control points the previous host did not expose:
+///
 /// - **`didOpenDocument`** — fires whenever a document is presented (browser
-///   pick, import, resume, or create-then-persist). T-008 binds this to
-///   `LastFileStore.recordLastOpened` so BR-1 holds for all three entry
-///   paths.
+///   pick, import, resume). Bound by `DocumentOpenObserver.install()` to
+///   `LastFileStore.recordLastOpened`, so BR-1 holds for all entry paths.
 /// - **`willPresentInitialContent`** — invoked from the scene's
 ///   `willConnectTo` path *before* the browser is the visible top view
-///   controller. T-006 binds this to make the resume decision and present
-///   the editor as the scene's first content (design DC-3). The default is
-///   a no-op, so the browser is the natural landing.
+///   controller. Used by the resume branch (DC-3) to land the user
+///   directly in the editor when a last-opened file resolves.
 ///
-/// The class also exposes `presentDocument(at:)` — the shared open path
-/// reused by the browser pick callback, the resume branch, and the create
-/// handler — so all three open paths funnel through the same code (and
-/// therefore the same `didOpenDocument` notification).
+/// **Create flow (restore-system-create-7, DC-1).** This controller
+/// implements `documentBrowser(_:didRequestDocumentCreationWithHandler:)`
+/// as a *template-only* handoff: it materializes an empty `.md` template in
+/// `NSTemporaryDirectory()` and invokes the system completion handler with
+/// `(templateURL, .copy)`. The system then copies the template into the
+/// folder the user is currently browsing, runs its inline rename UI, and
+/// — on confirm — opens the file through `didPickDocumentsAt` /
+/// `didImportDocumentAt`. Markus contributes no directory choice, no name,
+/// no deferred-write, and no fallback target.
 final class BrowserHostController: UIDocumentBrowserViewController {
 
-    typealias CreateImportHandler = (URL?, UIDocumentBrowserViewController.ImportMode) -> Void
-
-    /// Wave-4 T-007 hook. When set, takes over the system create-document
-    /// callback completely. The handler is responsible for invoking the
-    /// supplied `importHandler` exactly once (with `(nil, .none)` to cancel
-    /// or with a real URL to materialize). Default behavior: cancel the
-    /// system create cleanly.
-    var createDocumentRequestHandler: ((@escaping CreateImportHandler) -> Void)?
-
-    /// Wave-4 T-008 hook. Fired whenever a document opens successfully — at
-    /// the moment the editor scene becomes active for a real on-disk file.
+    /// Wave-4 hook. Fired whenever a document opens successfully.
     var didOpenDocument: ((URL) -> Void)?
 
-    /// Wave-4 T-006 hook. Invoked once from the scene's `willConnectTo`
-    /// path with this controller and the connection options. The
-    /// implementation may call `presentDocument(at:)` to land the user
-    /// directly in the editor before the browser becomes visible.
+    /// Wave-4 hook. Invoked once from the scene's `willConnectTo` path
+    /// before the browser is visible.
     var willPresentInitialContent: ((BrowserHostController, UIScene.ConnectionOptions) -> Void)?
 
     private var currentSaveBridge: MarkdownDocumentSaveBridge?
@@ -82,70 +70,25 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     }
 
     /// Asks the host to present the file at `url` in the editor. Used by
-    /// the browser pick callback, the resume branch (T-006), and the
-    /// create-document handler (T-007). Reuses the unchanged
-    /// `DocumentView` as the editor surface.
-    ///
-    /// - Parameters:
-    ///   - url: the file to open. Must be a `.md`/`.markdown` file already
-    ///     resolvable in the current security scope.
-    ///   - initialMode: hint for the editor's first mode. The walking
-    ///     skeleton already chooses an initial mode in `.onAppear` (large
-    ///     file → `.raw`); the create path uses this to request `.raw` for
-    ///     newly created files (DC-8).
-    ///   - focusEditorOnAppear: when true (create flow) the editor's text
-    ///     view becomes first responder on first appearance, so the
-    ///     keyboard is active (BR-12 / DC-8).
-    ///   - deferUntilFirstNonEmpty: when true (create flow) the save bridge
-    ///     does not write the file to disk until the user types at least
-    ///     one character (BR-13 / DC-9).
-    ///   - preloadedDocument: when non-nil, the host uses this in-memory
-    ///     document instead of reading file contents from `url`. Used by
-    ///     the create flow (the new file does not yet exist on disk).
-    ///   - animated: passed to `present`. Default true.
+    /// the browser pick/import callbacks and the resume branch. Reuses the
+    /// unchanged `DocumentView` as the editor surface.
     @MainActor
-    func presentDocument(at url: URL,
-                         initialMode: DocumentMode? = nil,
-                         focusEditorOnAppear: Bool = false,
-                         deferUntilFirstNonEmpty: Bool = false,
-                         preloadedDocument: MarkdownDocument? = nil,
-                         animated: Bool = true) {
-        let document: MarkdownDocument
-        if let preloadedDocument {
-            document = preloadedDocument
-        } else if let loaded = Self.loadMarkdownDocument(at: url) {
-            document = loaded
-        } else {
-            return
-        }
+    func presentDocument(at url: URL, animated: Bool = true) {
+        guard let document = Self.loadMarkdownDocument(at: url) else { return }
 
-        // DC-1 — the owned change detector, created beside the save bridge and
-        // wired to it through the shared `MarkdownDocument` (last-known-disk) and
-        // the suspension gate (DC-22). Settle suppression can be disabled for
-        // deterministic UI tests via `-uitest-suppress-settle`.
         let settleEnabled = !ProcessInfo.processInfo.arguments.contains("-uitest-suppress-settle")
         let detector = ChangeDetector(document: document, url: url, settleEnabled: settleEnabled)
         self.currentDetector = detector
 
-        let bridge = makeSaveBridge(document: document,
-                                    url: url,
-                                    deferUntilFirstNonEmpty: deferUntilFirstNonEmpty,
-                                    detector: detector)
+        let bridge = makeSaveBridge(document: document, url: url, detector: detector)
         self.currentSaveBridge = bridge
 
-        // DC-13/BR-5 — Keep Mine and Save As ask the bridge for the single
-        // deliberate write; suspension was already lifted by the resolution.
         detector.requestImmediateWrite = { [weak self] in
             self?.currentSaveBridge?.saveSynchronously()
         }
-        // DC-19/BR-8 — on a followed move, retarget the save bridge to the new
-        // location and update the resume reference so a later launch resumes there.
         detector.onRetarget = { [weak self, weak detector] newURL in
             guard let self, let detector else { return }
-            let newBridge = self.makeSaveBridge(document: document,
-                                                url: newURL,
-                                                deferUntilFirstNonEmpty: false,
-                                                detector: detector)
+            let newBridge = self.makeSaveBridge(document: document, url: newURL, detector: detector)
             self.currentSaveBridge = newBridge
             self.lastFileStore.recordLastOpened(newURL)
         }
@@ -157,8 +100,6 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         let editor = DocumentView(
             document: document,
             fileURL: url,
-            initialMode: initialMode,
-            focusEditorOnAppear: focusEditorOnAppear,
             detector: detector,
             onBack: onBack
         )
@@ -170,38 +111,18 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         installEdgeSwipeDismiss(on: nav.view)
 
         present(nav, animated: animated) { [weak self] in
-            // For pre-existing files (no deferred-write), the open path
-            // records-on-open via didOpenDocument. For deferred-write
-            // creates, didOpenDocument fires later (via onFirstPersist)
-            // when the file first hits disk.
-            if !deferUntilFirstNonEmpty {
-                self?.didOpenDocument?(url)
-            }
+            self?.didOpenDocument?(url)
         }
     }
 
-    /// Builds a save bridge wired to the detector: it consults the suspension gate
-    /// before writing (DC-22), and on a successful write resets last-known-disk and
-    /// opens the settle window (DC-9/DC-6).
     @MainActor
     private func makeSaveBridge(document: MarkdownDocument,
                                 url: URL,
-                                deferUntilFirstNonEmpty: Bool,
                                 detector: ChangeDetector) -> MarkdownDocumentSaveBridge {
-        let bridge = MarkdownDocumentSaveBridge(
-            document: document,
-            url: url,
-            deferUntilFirstNonEmpty: deferUntilFirstNonEmpty
-        )
+        let bridge = MarkdownDocumentSaveBridge(document: document, url: url)
         bridge.allowsSaveBack = { [weak detector] in detector?.allowsSaveBack ?? true }
         bridge.onDidWrite = { [weak detector] written in
             detector?.noteSaveCompleted(writtenContent: written)
-        }
-        bridge.onFirstPersist = { [weak self, weak detector] persistedURL in
-            detector?.noteFirstPersist(content: document.text)
-            // For a deferred-write create, the file becoming real on disk for the
-            // first time also makes it the new last-opened reference (DC-10/BR-15).
-            self?.didOpenDocument?(persistedURL)
         }
         return bridge
     }
@@ -217,12 +138,6 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         dismiss(animated: true)
     }
 
-    /// Installs a screen-edge pan recognizer on the presented editor's view
-    /// to emulate the "interactive pop" gesture for the modal-presented
-    /// editor (DC-14). `UINavigationController`'s built-in
-    /// `interactivePopGestureRecognizer` only fires when the stack has more
-    /// than one view controller; here the editor is the root, so we
-    /// supplement with a dedicated edge-pan that triggers dismissal.
     @MainActor
     private func installEdgeSwipeDismiss(on view: UIView) {
         let pan = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleEdgeSwipeDismiss(_:)))
@@ -238,7 +153,6 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     }
 
     /// Flush any in-flight saves for the currently presented document.
-    /// Called by `SceneDelegate` on background / disconnect.
     @MainActor
     func flushPendingSaves() {
         currentSaveBridge?.saveSynchronously()
@@ -259,13 +173,23 @@ final class BrowserHostController: UIDocumentBrowserViewController {
 
 extension BrowserHostController: UIDocumentBrowserViewControllerDelegate {
 
+    /// DC-1 — template-only system create delegate. Materialize an empty
+    /// `.md` in `NSTemporaryDirectory()` and hand it to the system with
+    /// `.copy` import mode. The system copies the template into the
+    /// folder the user is currently browsing, presents its inline rename
+    /// UI, and on confirm opens the file through the normal open-document
+    /// delegate path. Markus contributes no directory choice, no name, no
+    /// deferred-write, and no fallback/probe logic.
     func documentBrowser(_ controller: UIDocumentBrowserViewController,
-                         didRequestDocumentCreationWithHandler importHandler: @escaping CreateImportHandler) {
-        if let handler = createDocumentRequestHandler {
-            handler(importHandler)
-        } else {
-            // Default: cancel the system create cleanly. Wave 4 T-007 binds
-            // `createDocumentRequestHandler` to take over.
+                         didRequestDocumentCreationWithHandler importHandler: @escaping (URL?, UIDocumentBrowserViewController.ImportMode) -> Void) {
+        let templateURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("Untitled-\(UUID().uuidString).md")
+        do {
+            try Data().write(to: templateURL, options: [.atomic])
+            importHandler(templateURL, .copy)
+        } catch {
+            // Framework contract: if the template cannot be materialized,
+            // complete with nil + .none so the browser doesn't hang.
             importHandler(nil, .none)
         }
     }

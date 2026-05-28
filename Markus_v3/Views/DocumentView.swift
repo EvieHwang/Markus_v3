@@ -4,13 +4,12 @@ import UIKit
 struct DocumentView: View {
     @ObservedObject var document: MarkdownDocument
     let fileURL: URL?
-    let initialMode: DocumentMode?
-    let focusEditorOnAppear: Bool
     let detector: ChangeDetector?
     let onBack: (() -> Void)?
 
     @State private var mode: DocumentMode = .rendered
     @State private var didInitMode = false
+    @State private var focusRawOnFirstAppear: Bool = false
     @State private var activeAlert: ActiveAlert?
     @State private var toast: String?
     @State private var coordinator: AutosaveCoordinator
@@ -23,7 +22,7 @@ struct DocumentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.undoManager) private var undoManager
 
-    private static let largeFileByteThreshold = 500 * 1024
+    static let largeFileByteThreshold = 500 * 1024
 
     init(configuration: ReferenceFileDocumentConfiguration<MarkdownDocument>) {
         self.init(document: configuration.document, fileURL: configuration.fileURL)
@@ -31,20 +30,37 @@ struct DocumentView: View {
 
     init(document: MarkdownDocument,
          fileURL: URL? = nil,
-         initialMode: DocumentMode? = nil,
-         focusEditorOnAppear: Bool = false,
          detector: ChangeDetector? = nil,
          onBack: (() -> Void)? = nil) {
         self.document = document
         self.fileURL = fileURL
-        self.initialMode = initialMode
-        self.focusEditorOnAppear = focusEditorOnAppear
         self.detector = detector
         self.onBack = onBack
         let doc = document
         self._coordinator = State(wrappedValue: AutosaveCoordinator(onIdle: { [weak doc] in
             doc?.markDirty()
         }))
+    }
+
+    /// DC-4 — content-based initial-mode rule. Pure function of content:
+    /// empty content (zero text) → `.raw` (caller should also bring up the
+    /// keyboard); content at or above `largeFileByteThreshold` → `.raw`;
+    /// otherwise `.rendered`. Used by `.onAppear` and exposed as a static
+    /// helper so the rule can be unit-tested at the seam itself.
+    static func initialMode(forContent text: String, byteSize: Int) -> DocumentMode {
+        if text.isEmpty || byteSize == 0 { return .raw }
+        if byteSize >= largeFileByteThreshold { return .raw }
+        return .rendered
+    }
+
+    /// DC-4 — file-based convenience. Resolves the file's bytes from disk
+    /// and delegates to `initialMode(forContent:byteSize:)`. If the file
+    /// cannot be read, defaults to `.rendered` (the historical fallback
+    /// when no signal is available).
+    static func initialMode(forFile url: URL) -> DocumentMode {
+        let data = (try? Data(contentsOf: url)) ?? Data()
+        let text = String(data: data, encoding: .utf8) ?? ""
+        return initialMode(forContent: text, byteSize: data.count)
     }
 
     var body: some View {
@@ -69,7 +85,7 @@ struct DocumentView: View {
                         coordinator: coordinator,
                         scrollState: rawScrollState,
                         pendingScrollAnchor: $pendingRawAnchor,
-                        focusOnAppear: focusEditorOnAppear,
+                        focusOnAppear: focusRawOnFirstAppear,
                         onSwipeToRendered: { switchToRenderedFromSwipe() },
                         // NP-5: mid-screen L→R on raw goes back to file browser,
                         // matching the system edge-pan dismiss + back-button paths.
@@ -105,11 +121,15 @@ struct DocumentView: View {
         }
         .onAppear {
             if !didInitMode {
-                if let initialMode {
-                    mode = initialMode
-                } else {
-                    mode = document.initialByteSize >= Self.largeFileByteThreshold ? .raw : .rendered
-                }
+                // DC-4 — content-based initial mode. Empty content lands in
+                // raw mode with the keyboard up (matching Notes/Pages new-doc
+                // behavior); large content lands in raw without auto-focus;
+                // otherwise rendered.
+                let resolved = Self.initialMode(forContent: document.text,
+                                                byteSize: document.initialByteSize)
+                mode = resolved
+                focusRawOnFirstAppear = (resolved == .raw)
+                    && (document.text.isEmpty || document.initialByteSize == 0)
                 didInitMode = true
             }
             document.undoManager = undoManager

@@ -36,6 +36,12 @@ nonisolated final class LastFileStore {
         self.pathKey = pathKey
     }
 
+    /// True when a bookmark record currently exists. Independent of whether
+    /// the bookmark resolves — used to verify RETAIN-on-failure (DC-5).
+    var hasRecord: Bool {
+        defaults.data(forKey: bookmarkKey) != nil
+    }
+
     /// Records the given URL as the last-opened file, replacing any prior reference.
     /// On bookmark-creation failure, the reference is left unchanged.
     func recordLastOpened(_ url: URL) {

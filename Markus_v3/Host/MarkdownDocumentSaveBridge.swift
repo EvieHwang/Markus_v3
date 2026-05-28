@@ -26,25 +26,6 @@ final class MarkdownDocumentSaveBridge {
     private var subscription: AnyCancellable?
     private var pendingSave: Task<Void, Never>?
 
-    /// When true, writes are deferred until the document's text has been
-    /// non-empty at least once (i.e. the user has typed something into a
-    /// freshly created file). Once the document persists, the bridge
-    /// reverts to normal write-on-change behavior. Set by the create flow
-    /// for new files (T-007 / DC-9).
-    private let deferUntilFirstNonEmpty: Bool
-
-    /// Tracks whether we have seen any non-empty text yet. Becomes true on
-    /// the first change to a non-empty value; from that moment on, writes
-    /// proceed normally (including saving an empty document, which is the
-    /// user erasing all content).
-    private var hasSeenContent: Bool
-
-    /// Called once when the deferred write actually materializes the new
-    /// file for the first time (i.e. transition from "never written" to
-    /// "written"). Lets the host record the file as the last-opened
-    /// reference (DC-10 / BR-15).
-    var onFirstPersist: ((URL) -> Void)?
-
     /// DC-22 — save-back gate. When this returns false (a collision/deletion has
     /// been classified for the open document), the bridge does not write: the
     /// disagreeing on-disk content stays recoverable until the user resolves.
@@ -55,28 +36,14 @@ final class MarkdownDocumentSaveBridge {
     /// detector can reset last-known-disk and open the settle window (DC-6).
     var onDidWrite: ((String) -> Void)?
 
-    init(document: MarkdownDocument,
-         url: URL,
-         deferUntilFirstNonEmpty: Bool = false) {
+    init(document: MarkdownDocument, url: URL) {
         self.document = document
         self.url = url
-        self.deferUntilFirstNonEmpty = deferUntilFirstNonEmpty
-        self.hasSeenContent = deferUntilFirstNonEmpty ? !document.text.isEmpty : true
         subscription = document.$text
             .dropFirst()
-            .sink { [weak self] newText in
-                self?.observed(newText: newText)
+            .sink { [weak self] _ in
+                self?.scheduleSave()
             }
-    }
-
-    private func observed(newText: String) {
-        if deferUntilFirstNonEmpty && !hasSeenContent {
-            if newText.isEmpty {
-                return
-            }
-            hasSeenContent = true
-        }
-        scheduleSave()
     }
 
     deinit {
@@ -85,10 +52,6 @@ final class MarkdownDocumentSaveBridge {
 
     /// Cancels any pending debounce and writes the current text immediately.
     func saveSynchronously() {
-        // Honor the deferred-write contract: don't materialize an untyped
-        // (still-empty) new file on background/teardown either (DC-9 /
-        // BR-13 / BR-24).
-        guard hasSeenContent else { return }
         // DC-22 — never flush over a classified-but-unresolved collision/deletion.
         guard allowsSaveBack() else { return }
         pendingSave?.cancel()
@@ -114,7 +77,6 @@ final class MarkdownDocumentSaveBridge {
         // DC-22 — re-check at the write edge: a collision may have been classified
         // after this save was scheduled (the classify→present gap).
         guard allowsSaveBack() else { return }
-        let didExistBefore = FileManager.default.fileExists(atPath: url.path)
         let textToWrite = document.text
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -129,8 +91,5 @@ final class MarkdownDocumentSaveBridge {
         // DC-9 — a successful write is now the last-known-disk content, and a
         // settle trigger (DC-6) so the sync echo of our own write is suppressed.
         onDidWrite?(textToWrite)
-        if !didExistBefore {
-            onFirstPersist?(url)
-        }
     }
 }
