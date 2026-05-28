@@ -20,51 +20,51 @@ Task ID column is a placeholder; `/dag` (Stage 5) populates it by tagging each t
 
 | AC | Test(s) | Task ID |
 |----|---------|---------|
-| AC-1.1 (new file in browsed folder) | `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder`, `SystemCreateUITests.test_confirmRename_persistsFileAndOpensEditor` | _TBD_ |
-| AC-1.2 (parent dir not from last-opened) | `CreateLocationTests.templateURLIgnoresLastOpenedDirectory` | _TBD_ |
-| AC-1.3 (template-only delegate, no custom resolver/probe) | `CreateLocationTests.templateLandsInTempDir`, `CreateLocationTests.templateIsEmptyOnDisk`, `CreateLocationTests.templateCompletesWithSuccessMode`, `RemovedComponentsTests.noResidualSymbolReferences` | _TBD_ |
-| AC-2.1 (system inline rename UI focused) | `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder` | _TBD_ |
-| AC-2.2 (confirm → file persists, editor opens) | `SystemCreateUITests.test_confirmRename_persistsFileAndOpensEditor` | _TBD_ |
-| AC-2.3 (accept system default name) | `SystemCreateUITests.test_acceptSystemDefaultName_opensEditor` | _TBD_ |
-| AC-2.4 (no custom Markus naming sheet) | `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder` (asserts `MarkusCreateSheet` / `MarkusNameField` absent) | _TBD_ |
-| AC-3.1 (file on disk post-create) | `CreateLocationTests.templateIsEmptyOnDisk`, `SystemCreateUITests.test_confirmRename_persistsFileAndOpensEditor` | _TBD_ |
-| AC-3.2 (no deferred-write code path) | `RemovedComponentsTests.noDeferredWriteState` | _TBD_ |
-| AC-3.3 (no Markus cleanup on rename cancel) | `RemovedComponentsTests.noDeferredWriteState` (no abandon-handler state); EC-3 below | _TBD_ |
-| AC-4.1 (empty → raw + keyboard) | `InitialModeTests.emptyContentSelectsRaw`, `InitialModeTests.zeroBytePreexistingSelectsRaw`, `SystemCreateUITests.test_newFileOpensInRawModeWithKeyboard` | _TBD_ |
-| AC-4.2 (decision pure function of content) | `InitialModeTests.decisionIgnoresProvenance`, `InitialModeTests.noCreatePathThreadsInitialMode` | _TBD_ |
-| AC-4.3 (non-empty → rendered) | `InitialModeTests.midSizeSelectsRendered`, `SystemCreateUITests.test_existingNonEmptyFileOpensRendered` | _TBD_ |
-| AC-5.1 (resume-on-launch unchanged) | `ResumeRegressionTests.validBookmarkResumes`, `ResumeRegressionTests.unresolvableBookmarkFallsBack`, `SystemCreateUITests.test_nextLaunchResumesIntoSystemCreatedFile` | _TBD_ |
-| AC-5.2 (system-created file recorded by C3) | `ResumeRegressionTests.systemCreatedFileFlowsThroughC3`, `SystemCreateUITests.test_nextLaunchResumesIntoSystemCreatedFile` | _TBD_ |
-| AC-5.3 (back-to-browser / edge-swipe) | `SystemCreateUITests.test_backFromSystemCreatedFile_returnsToBrowser` | _TBD_ |
-| AC-5.4 (removed types not referenced) | `RemovedComponentsTests.createDocumentHandlerSourceAbsent`, `RemovedComponentsTests.nameProbeSourceAbsent`, `RemovedComponentsTests.createTargetResolverSourceAbsent`, `RemovedComponentsTests.localDocumentsFallbackSourceAbsent`, `RemovedComponentsTests.removedTestFilesAbsent`, `RemovedComponentsTests.noResidualSymbolReferences`, `RemovedComponentsTests.sceneDelegateHasNoCreateHandler` | _TBD_ |
-| AC-6.1 (old unit tests removed) | `RemovedComponentsTests.removedTestFilesAbsent` | _TBD_ |
-| AC-6.2 (UI tests rewritten or removed) | Replaced by `SystemCreateUITests.*` (observable outcome); old `ResumeAndCreateUITests` create-flow paths covered by `RemovedComponentsTests.noResidualSymbolReferences` for code drift. | _TBD_ |
-| AC-6.3 (full suite passes) | Suite-wide; satisfied when every test above passes via `xcodebuild test`. | _TBD_ |
+| AC-1.1 (new file in browsed folder) | `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder`, `SystemCreateUITests.test_confirmRename_persistsFileAndOpensEditor` | T-004, T-006 |
+| AC-1.2 (parent dir not from last-opened) | `CreateLocationTests.templateURLIgnoresLastOpenedDirectory` | T-004 |
+| AC-1.3 (template-only delegate, no custom resolver/probe) | `CreateLocationTests.templateLandsInTempDir`, `CreateLocationTests.templateIsEmptyOnDisk`, `CreateLocationTests.templateCompletesWithSuccessMode`, `RemovedComponentsTests.noResidualSymbolReferences` | T-004, T-006 |
+| AC-2.1 (system inline rename UI focused) | `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder` | T-004, T-006 |
+| AC-2.2 (confirm → file persists, editor opens) | `SystemCreateUITests.test_confirmRename_persistsFileAndOpensEditor` | T-004, T-006 |
+| AC-2.3 (accept system default name) | `SystemCreateUITests.test_acceptSystemDefaultName_opensEditor` | T-004, T-006 |
+| AC-2.4 (no custom Markus naming sheet) | `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder` (asserts `MarkusCreateSheet` / `MarkusNameField` absent) | T-004, T-006 |
+| AC-3.1 (file on disk post-create) | `CreateLocationTests.templateIsEmptyOnDisk`, `SystemCreateUITests.test_confirmRename_persistsFileAndOpensEditor` | T-004, T-006 |
+| AC-3.2 (no deferred-write code path) | `RemovedComponentsTests.noDeferredWriteState` | T-004 |
+| AC-3.3 (no Markus cleanup on rename cancel) | `RemovedComponentsTests.noDeferredWriteState` (no abandon-handler state); EC-3 below | T-004 |
+| AC-4.1 (empty → raw + keyboard) | `InitialModeTests.emptyContentSelectsRaw`, `InitialModeTests.zeroBytePreexistingSelectsRaw`, `SystemCreateUITests.test_newFileOpensInRawModeWithKeyboard` | T-005, T-006 |
+| AC-4.2 (decision pure function of content) | `InitialModeTests.decisionIgnoresProvenance`, `InitialModeTests.noCreatePathThreadsInitialMode` | T-005 |
+| AC-4.3 (non-empty → rendered) | `InitialModeTests.midSizeSelectsRendered`, `SystemCreateUITests.test_existingNonEmptyFileOpensRendered` | T-005, T-006 |
+| AC-5.1 (resume-on-launch unchanged) | `ResumeRegressionTests.validBookmarkResumes`, `ResumeRegressionTests.unresolvableBookmarkFallsBack`, `SystemCreateUITests.test_nextLaunchResumesIntoSystemCreatedFile` | T-005, T-006 |
+| AC-5.2 (system-created file recorded by C3) | `ResumeRegressionTests.systemCreatedFileFlowsThroughC3`, `SystemCreateUITests.test_nextLaunchResumesIntoSystemCreatedFile` | T-005, T-006 |
+| AC-5.3 (back-to-browser / edge-swipe) | `SystemCreateUITests.test_backFromSystemCreatedFile_returnsToBrowser` | T-006 |
+| AC-5.4 (removed types not referenced) | `RemovedComponentsTests.createDocumentHandlerSourceAbsent`, `RemovedComponentsTests.nameProbeSourceAbsent`, `RemovedComponentsTests.createTargetResolverSourceAbsent`, `RemovedComponentsTests.localDocumentsFallbackSourceAbsent`, `RemovedComponentsTests.removedTestFilesAbsent`, `RemovedComponentsTests.noResidualSymbolReferences`, `RemovedComponentsTests.sceneDelegateHasNoCreateHandler` | T-001, T-002, T-003, T-004, T-006 |
+| AC-6.1 (old unit tests removed) | `RemovedComponentsTests.removedTestFilesAbsent` | T-001, T-002, T-003, T-004, T-006 |
+| AC-6.2 (UI tests rewritten or removed) | Replaced by `SystemCreateUITests.*` (observable outcome); old `ResumeAndCreateUITests` create-flow paths covered by `RemovedComponentsTests.noResidualSymbolReferences` for code drift. | T-006 |
+| AC-6.3 (full suite passes) | Suite-wide; satisfied when every test above passes via `xcodebuild test`. | T-006 |
 
 ### Edge cases → tests
 
 | EC | Test(s) | Task ID |
 |----|---------|---------|
-| EC-1 (read-only folder) | Not directly tested in spec suite — by DC-1 / `CreateLocationTests.*` Markus contributes no probe/fallback, so behavior is whatever the system produces. Covered by absence of writability-probe code (`RemovedComponentsTests.noResidualSymbolReferences`). | _TBD_ |
-| EC-2 (name collision) | Covered by absence of `NameProbe`-style logic (`RemovedComponentsTests.noResidualSymbolReferences`); system collision behavior is framework-owned. | _TBD_ |
-| EC-3 (user cancels rename) | Covered by `RemovedComponentsTests.noDeferredWriteState` (no Markus-owned abandon-handler exists). | _TBD_ |
-| EC-4 (last-opened in same folder) | `ResumeRegressionTests.c3NoSpecialCaseForCreates` | _TBD_ |
-| EC-5 (create after resume back-out) | `SystemCreateUITests.test_backFromSystemCreatedFile_returnsToBrowser` + `test_plusTap_presentsSystemRenameUIInBrowsedFolder` (browser shows whatever system default folder; Markus does not force). | _TBD_ |
-| EC-6 (pre-existing zero-byte file) | `InitialModeTests.zeroBytePreexistingSelectsRaw` | _TBD_ |
-| EC-7 (deferred-write tests gone) | `RemovedComponentsTests.removedTestFilesAbsent`, `RemovedComponentsTests.noDeferredWriteState` | _TBD_ |
-| EC-8 (legacy Untitled n.md files left alone) | Not tested — declaration explicitly puts migration out of scope, and the absence of any migration code is covered by `RemovedComponentsTests.noResidualSymbolReferences` (no `NameProbe` / `Untitled` references). | _TBD_ |
+| EC-1 (read-only folder) | Not directly tested in spec suite — by DC-1 / `CreateLocationTests.*` Markus contributes no probe/fallback, so behavior is whatever the system produces. Covered by absence of writability-probe code (`RemovedComponentsTests.noResidualSymbolReferences`). | T-002, T-006 |
+| EC-2 (name collision) | Covered by absence of `NameProbe`-style logic (`RemovedComponentsTests.noResidualSymbolReferences`); system collision behavior is framework-owned. | T-001, T-006 |
+| EC-3 (user cancels rename) | Covered by `RemovedComponentsTests.noDeferredWriteState` (no Markus-owned abandon-handler exists). | T-004 |
+| EC-4 (last-opened in same folder) | `ResumeRegressionTests.c3NoSpecialCaseForCreates` | T-005 |
+| EC-5 (create after resume back-out) | `SystemCreateUITests.test_backFromSystemCreatedFile_returnsToBrowser` + `test_plusTap_presentsSystemRenameUIInBrowsedFolder` (browser shows whatever system default folder; Markus does not force). | T-006 |
+| EC-6 (pre-existing zero-byte file) | `InitialModeTests.zeroBytePreexistingSelectsRaw` | T-005 |
+| EC-7 (deferred-write tests gone) | `RemovedComponentsTests.removedTestFilesAbsent`, `RemovedComponentsTests.noDeferredWriteState` | T-004, T-006 |
+| EC-8 (legacy Untitled n.md files left alone) | Not tested — declaration explicitly puts migration out of scope, and the absence of any migration code is covered by `RemovedComponentsTests.noResidualSymbolReferences` (no `NameProbe` / `Untitled` references). | T-001, T-006 |
 
 ### Design contracts → tests
 
 | DC | Test(s) | Task ID |
 |----|---------|---------|
-| DC-1 (template-only system create delegate) | `CreateLocationTests.templateLandsInTempDir`, `templateIsEmptyOnDisk`, `templateCompletesWithSuccessMode`, `templateURLIgnoresLastOpenedDirectory`; `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder` | _TBD_ |
-| DC-2 (no deferred on-disk persistence) | `RemovedComponentsTests.noDeferredWriteState`, `CreateLocationTests.templateIsEmptyOnDisk` (file is real on disk pre-handoff) | _TBD_ |
-| DC-3 (no abandoned-create observer) | `RemovedComponentsTests.noDeferredWriteState`, `RemovedComponentsTests.noResidualSymbolReferences` | _TBD_ |
-| DC-4 (content-based initial mode) | All of `InitialModeTests.*` | _TBD_ |
-| DC-5 (resume-on-launch preserved) | `ResumeRegressionTests.validBookmarkResumes`, `ResumeRegressionTests.unresolvableBookmarkFallsBack` | _TBD_ |
-| DC-6 (system-created files funnel through C3) | `ResumeRegressionTests.systemCreatedFileFlowsThroughC3`, `ResumeRegressionTests.c3NoSpecialCaseForCreates`, `SystemCreateUITests.test_nextLaunchResumesIntoSystemCreatedFile` | _TBD_ |
-| DC-7 (back navigation preserved) | `SystemCreateUITests.test_backFromSystemCreatedFile_returnsToBrowser` | _TBD_ |
+| DC-1 (template-only system create delegate) | `CreateLocationTests.templateLandsInTempDir`, `templateIsEmptyOnDisk`, `templateCompletesWithSuccessMode`, `templateURLIgnoresLastOpenedDirectory`; `SystemCreateUITests.test_plusTap_presentsSystemRenameUIInBrowsedFolder` | T-004, T-006 |
+| DC-2 (no deferred on-disk persistence) | `RemovedComponentsTests.noDeferredWriteState`, `CreateLocationTests.templateIsEmptyOnDisk` (file is real on disk pre-handoff) | T-004 |
+| DC-3 (no abandoned-create observer) | `RemovedComponentsTests.noDeferredWriteState`, `RemovedComponentsTests.noResidualSymbolReferences` | T-004, T-006 |
+| DC-4 (content-based initial mode) | All of `InitialModeTests.*` | T-005 |
+| DC-5 (resume-on-launch preserved) | `ResumeRegressionTests.validBookmarkResumes`, `ResumeRegressionTests.unresolvableBookmarkFallsBack` | T-005, T-006 |
+| DC-6 (system-created files funnel through C3) | `ResumeRegressionTests.systemCreatedFileFlowsThroughC3`, `ResumeRegressionTests.c3NoSpecialCaseForCreates`, `SystemCreateUITests.test_nextLaunchResumesIntoSystemCreatedFile` | T-005, T-006 |
+| DC-7 (back navigation preserved) | `SystemCreateUITests.test_backFromSystemCreatedFile_returnsToBrowser` | T-006 |
 
 ## Notes on technique
 
