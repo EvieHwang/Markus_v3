@@ -22,21 +22,21 @@ struct RenderedViewTests {
     }
 
     @MainActor
-    @Test("Link tap fires onTap callback (does NOT follow the link)")
+    @Test("Link tap does NOT fire onTap callback (AC-1.5: link follows URL, no mode switch)")
     func testLinkTapFiresCallback() {
         let tracker = TapTracker()
         let view = RenderedView(text: "[Apple](https://apple.com)", onTap: { _ in tracker.fire() })
         view.simulateLinkTap(URL(string: "https://apple.com")!)
-        #expect(tracker.fired)
+        #expect(!tracker.fired)
     }
 
     @MainActor
-    @Test("Link tap reports no tap location (nil fractionalY)")
+    @Test("Link tap reports nothing to onTap (AC-1.5: URL handled by system openURL)")
     func testLinkTapReportsNilFractional() {
         var receivedY: Double?? = nil
         let view = RenderedView(text: "[A](https://a.com)", onTap: { receivedY = $0 })
         view.simulateLinkTap(URL(string: "https://a.com")!)
-        #expect(receivedY == .some(.none))
+        #expect(receivedY == nil)
     }
 
     @MainActor
