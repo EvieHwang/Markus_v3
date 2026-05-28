@@ -117,3 +117,43 @@ VoiceOver rotor gesture automation is not supported in iOS simulators via XCUITe
 | AC-4.4 (hint is spoken by VoiceOver) | `XCUIElement.accessibilityHint` not readable in XCUITest | Enable VoiceOver, trigger conflict sheet, navigate to "Discard Mine", pause — confirm hint is announced. |
 | AC-4.9 (VoiceOver focus destination after banner dismissal) | `UIAccessibility.post` notification not interceptable in XCUITest | Enable VoiceOver, trigger deletion banner, navigate focus to banner buttons, tap "Dismiss" — confirm focus moves to document content, not stuck on invisible banner. |
 | AC-5.1–5.2 (real UIAccessibility.post fires) | Global side-effect; no test-observable return value without swizzling | Enable VoiceOver, trigger mode switches via each path — confirm announcement is heard. |
+
+---
+
+## Task → Test Mapping
+
+| Task | Test file(s) | Test name(s) | ACs covered |
+|------|-------------|--------------|-------------|
+| T-001 | `LinkBehaviorUITests.swift` | `testLinkTapDoesNotSwitchToRawMode` | AC-1.1, AC-1.2, AC-1.5 |
+| T-001 | `LinkBehaviorUITests.swift` | `testNonLinkTapSwitchesToRawMode` | AC-1.3 |
+| T-001 | `LinkBehaviorUITests.swift` | `testDocumentWithNoLinksEntersRawModeOnTap` | AC-1.3, EC-1.4 |
+| T-001 | `LinkBehaviorUITests.swift` | `testVoiceOverEditActionSwitchesToRawMode` | AC-1.4 |
+| T-001 | `RenderedViewTests.swift` (existing tests updated) | `testLinkTapFiresCallback` → updated to assert no `onTap` call; `testLinkTapReportsNilFractional` → updated | AC-1.5 (CC-2 test-correction obligation) |
+| T-002 | `MarkdownThemeFactoryAccessibilityTests.swift` | `h1LargerThanBody`, `h2LargerThanBody`, `h3AtLeastBody`, `h4EqualsBody`, `h5SmallerThanBody`, `h6SmallerThanH5`, `headingLevelsDescend`, `makeThemeDoesNotCrash` | AC-2.1 (typography proxy), AC-2.4 |
+| T-002 | `MarkdownThemeFactoryAccessibilityTests.swift` | `bodyFontIsNotHeadingScale` | AC-2.3 |
+| T-002 | `MarkdownThemeFactoryAccessibilityTests.swift` | `headingFontIsProportionalToBody` | AC-2.4 |
+| T-002 | `AccessibilityHeadingRotorUITests.swift` | `testRenderedViewExposesAtLeastOneHeadingElement` | AC-2.1 (end-to-end), AC-2.2, AC-2.5 |
+| T-002 | `AccessibilityHeadingRotorUITests.swift` | `testHeadingElementsAreInDocumentOrder` | AC-2.2, AC-2.5 |
+| T-002 | `AccessibilityHeadingRotorUITests.swift` | `testHeadingCountMatchesSeedFileStructure` | AC-2.5 |
+| T-002 | `AccessibilityHeadingRotorUITests.swift` | `testBodyTextDoesNotHaveHeaderTrait` | AC-2.3 |
+| T-003 | `MarkdownEditorDynamicTypeTests.swift` | `fontUpdatesOnNotification` | AC-3.1 |
+| T-003 | `MarkdownEditorDynamicTypeTests.swift` | `fontAndTypingAttributesBothUpdate` | AC-3.2 |
+| T-003 | `MarkdownEditorDynamicTypeTests.swift` | `fontAssignmentDoesNotResetSelection` | AC-3.3 |
+| T-003 | `MarkdownEditorDynamicTypeTests.swift` | `observerIsRemovedOnDealloc` | AC-3.5 |
+| T-003 | `MarkdownEditorDynamicTypeTests.swift` | `fontSizeHasFloorOfOnePt`, `initFontSizeSatisfiesFloor` | AC-3.6 |
+| T-003 | `MarkdownEditorDynamicTypeTests.swift` | `rapidNotificationsConverge` | EC-3.1 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testKeepMineHasNonEmptyAccessibilityLabel` | AC-4.1 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testKeepTheirsHasNonEmptyAccessibilityLabel` | AC-4.2 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testDiscardMineHasNonEmptyAccessibilityLabel` | AC-4.3 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testDiscardMineHasAccessibilityHint` (XCTSkip — documented limitation) | AC-4.4 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testDeletionBannerSaveAsHasNonEmptyLabel` | AC-4.5 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testDismissBannerButtonHasContextSpecificLabel` | AC-4.6 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testConflictSheetButtonIdentifiersArePreserved`, `testDeletionBannerButtonIdentifiersArePreserved` | AC-4.7, CC-1 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testConflictSheetTitleIsPresent` | AC-4.8 |
+| T-004 | `AccessibilityLabelsUITests.swift` | `testDeletionBannerDismissHidesBannerAndAppRemainsUsable` | AC-4.9 |
+| T-005 | `DocumentViewModeAnnouncementTests.swift` | `switchToRawPostsAnnouncement`, `switchToRawAnnouncementText`, `swipeToRawPostsAnnouncement` | AC-5.1 |
+| T-005 | `DocumentViewModeAnnouncementTests.swift` | `switchToRenderedPostsAnnouncement`, `toolbarShowRenderedPostsAnnouncement`, `swipeToRenderedPostsAnnouncement`, `renderedModeAnnouncementText` | AC-5.2 |
+| T-005 | `DocumentViewModeAnnouncementTests.swift` | `eachSwitchPostsExactlyOneAnnouncement`, `renderedPathsEachPostOneAnnouncement` | AC-5.3 |
+| T-005 | `DocumentViewModeAnnouncementTests.swift` | `announcementStringsAreLocalizable` | AC-5.4 |
+| T-005 | `DocumentViewModeAnnouncementTests.swift` | `onAppearDoesNotPostAnnouncement`, `onAppearRawForEmptyFilePostsNoAnnouncement` | AC-5.5 |
+| T-005 | `DocumentViewModeAnnouncementTests.swift` | `switchToRenderedStillTriggersSave`, `switchToRawDoesNotTriggerSave`, `toolbarShowRenderedTriggersSave` | AC-5.6 |
