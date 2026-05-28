@@ -8,7 +8,7 @@ Remove Markus's custom new-file creation flow and let the system's `UIDocumentBr
 
 Concretely, this feature removes from `resume-and-create-2`:
 
-- **C4 CreateDocumentHandler** — the `documentBrowser(_:didRequestDocumentCreationWithHandler:)` override that intercepted creation.
+- **C4 CreateDocumentHandler** — the directory-choosing, naming, and deferred-write logic layered on top of the create delegate. The delegate method itself may still need a minimal template-providing implementation for the system "+" affordance to function; the *intercepting* behavior — choosing the location, computing the name, withholding the write — is what goes.
 - **C5 NameProbe** — the `Untitled[ n].md` collision-avoidance helper.
 - **C6 CreateTargetResolver** — the last-directory-vs-fallback chooser and writability probe.
 - **C7 LocalDocumentsFallback** — the app-container Documents fallback target.
@@ -37,7 +37,7 @@ Removing this reduces Markus's surface area: fewer components, fewer delegate ov
 
 After this feature ships:
 
-1. Tapping "+" in the document browser uses the **system's** create affordance — Markus does not override `documentBrowser(_:didRequestDocumentCreationWithHandler:)`.
+1. Tapping "+" in the document browser uses the **system's** create affordance — Markus does not choose the create location or name. Any implementation of `documentBrowser(_:didRequestDocumentCreationWithHandler:)` is minimal (template-only), hands off to the system, and contains none of the logic that lived in C4/C5/C6/C7.
 2. The new file lands in the **folder the user is currently browsing**, not in any app-resolved directory.
 3. The user sees the **system's inline rename UI** in the browser before the editor opens; the file persists with whatever name the user enters (or the system default if they accept without renaming).
 4. The new file exists on disk from creation — no deferred-write logic anywhere in the codebase.
