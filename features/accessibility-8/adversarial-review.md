@@ -6,6 +6,13 @@
 
 ---
 
+**Mode:** verification pass (round 1)
+**requirements.md SHA:** 82e9c21d148db7edfad47f38f12773d4bdccd7e0
+**design.md SHA:** e690e4779ffc1d1b0d2d295aa407e29242057f90
+**Scope:** Verified fixes for F-001 through F-005 only. No full lens sweep. No new findings against unchanged content.
+
+---
+
 ## Summary
 
 Five findings surfaced. Two are HIGH (a real runtime race condition that would cause spurious VoiceOver announcements on every cold launch into raw mode, and a silent failure mode where heading traits may not propagate through MarkdownUI's view hierarchy). One MEDIUM concerns an unaddressed VoiceOver focus-restoration behavior declared required in the spec but given no implementation mechanism. Two LOW findings address a missing acceptance criterion and a borderline label. Zero security findings. No scope drift.
@@ -22,6 +29,8 @@ Five findings surfaced. Two are HIGH (a real runtime race condition that would c
 **Recommended action:** `architecture` — replace the `didInitMode` flag pattern with a direct guard: set `didInitMode = true` before writing `mode`, or post the announcement inside the triggering paths (`switchTo`, `switchToRawFromSwipe`, toolbar handler) rather than in a generic `.onChange` observer. The per-path approach avoids any timing dependency on SwiftUI's state-batching semantics.
 **Status:** addressed — the `.onChange(of: mode)` announcement observer is removed from the design entirely. Announcements are now posted directly inside each user-triggered call site: `switchTo(_:target:)`, the toolbar "Show rendered" button handler, and `switchToRenderedFromSwipe()`. Because `onAppear`'s `mode = resolved` write is not one of these call sites, no announcement fires on initial load regardless of SwiftUI's state-batching semantics. The `didInitMode` guard dependency is eliminated.
 
+**Verification (round 1):** Fix confirmed. All four triggering paths are explicitly accounted for in design Component 5: (1) tap-to-edit via `switchTo`; (2) toolbar button with its own inline post; (3) `switchToRawFromSwipe()` via delegation to `switchTo`; (4) `switchToRenderedFromSwipe()` with its own inline post. The `onAppear` path is not among these call sites, eliminating the timing race unconditionally. No adjacent gap introduced.
+
 ---
 
 ### F-002
@@ -31,6 +40,8 @@ Five findings surfaced. Two are HIGH (a real runtime race condition that would c
 **Finding:** BC-2.1 and AC-2.1 require that each heading view's accessibility traits include `.isHeader` so VoiceOver's heading rotor can navigate them. The design prescribes calling `.accessibilityAddTraits(.isHeader)` on `configuration.label` in each MarkdownUI heading builder. However, MarkdownUI's heading builder `configuration.label` is a `MarkdownContentView` — an opaque SwiftUI view that MarkdownUI renders as a layout container. SwiftUI accessibility modifiers applied to a container view are not guaranteed to propagate down to the leaf text elements that VoiceOver encounters as individual accessibility elements; if MarkdownUI marks the container as an `accessibilityElement(children: .contain)` group internally, the `.isHeader` trait lands on the container rather than on the `Text` node the rotor indexes. There is no acceptance criterion that verifies the trait is present on the element VoiceOver actually focuses (rather than a parent). AC-2.2 requires "swiping down with the rotor set to Headings moves focus sequentially," but a test that merely checks `accessibilityTraits.contains(.isHeader)` on the view returned by the builder would pass even if the trait is on the wrong node. The behavioral requirement (heading rotor works) is declared but there is no acceptance criterion that catches a MarkdownUI-internal trait propagation failure.
 **Recommended action:** `requirements` — add an acceptance criterion that can only be satisfied if VoiceOver's heading rotor actually finds and navigates the elements (an XCUITest asserting `XCUIElementQuery` for heading elements returns expected count and order), not just that the modifier was applied. Also note in the design that if the trait does not propagate, the fallback is to wrap `configuration.label` in a `.accessibilityElement(children: .combine)` container with the trait, accepting that MarkdownUI's sub-element navigation is collapsed.
 **Status:** addressed — AC-2.2 revised and AC-2.5 added in requirements Revision 1 to require end-to-end behavioral verification via XCUITest that the heading rotor navigates to elements in the correct count and order.
+
+**Verification (round 1):** Fix confirmed. AC-2.2 now mandates an XCUITest that "queries for heading-trait elements and confirms the expected count and order match the document's heading structure." AC-2.5 explicitly rules out modifier-only checks: "A test that passes solely by checking modifier application on the view returned by the builder is insufficient." Both criteria are genuinely behavioral. The design's Component 2 fallback (wrap in `.accessibilityElement(children: .combine)` if trait does not propagate to the leaf VoiceOver focuses) addresses the container vs. leaf concern. No adjacent gap introduced.
 
 ---
 
@@ -42,6 +53,8 @@ Five findings surfaced. Two are HIGH (a real runtime race condition that would c
 **Recommended action:** `architecture` — add an explicit step in Component 4's change description: after `detector.dismissDeletionBanner()` removes the banner from the view hierarchy, post `UIAccessibility.post(notification: .layoutChanged, argument: nil)` (or `.screenChanged` with the document view as argument) so VoiceOver focus returns to a defined location. Alternatively, promote EC-4.2 to an acceptance criterion with a testable condition, forcing the design to address it.
 **Status:** addressed — AC-4.9 added in requirements Revision 1 requiring a `UIAccessibility.post(notification: .layoutChanged/screenChanged, ...)` after banner dismissal so VoiceOver focus moves to a defined document element. EC-4.2 updated to reference this mechanism.
 
+**Verification (round 1):** Fix confirmed. Both banner-dismissal paths are explicitly covered in design Component 4 code snippets: (1) the "Dismiss" button action posts `UIAccessibility.post(notification: .layoutChanged, argument: nil)` after `detector.dismissDeletionBanner()`; (2) the `fileExporter` completion handler posts the same notification after `detector.completeSaveAs(to: url)` in the `.success` branch. The `.failure` branch appropriately omits the notification because banner remains visible when the save fails. AC-4.9 covers "any other programmatic path," closing future paths. No adjacent gap introduced.
+
 ---
 
 ### F-004
@@ -52,6 +65,8 @@ Five findings surfaced. Two are HIGH (a real runtime race condition that would c
 **Recommended action:** `requirements` — update AC-4.6 to require a label that identifies what is being dismissed (e.g., "Dismiss deleted-file notice") and update the design string accordingly.
 **Status:** addressed — AC-4.6 revised in requirements Revision 1 to require a context-specific label (e.g., "Dismiss file deleted notice") rather than the bare word "Dismiss", satisfying WCAG 2.4.6.
 
+**Verification (round 1):** Fix confirmed. AC-4.6 now explicitly states the label must be "not the bare word 'Dismiss' alone" and "must name the context." The design's Component 4 sets `.accessibilityLabel(String(localized: "Dismiss file deleted notice", ...))` and the behavioral constraint reiterates the context-naming requirement. No adjacent gap introduced.
+
 ---
 
 ### F-005
@@ -61,6 +76,8 @@ Five findings surfaced. Two are HIGH (a real runtime race condition that would c
 **Finding:** AC-3.1 specifies the post-resize font size as "`UIFont.preferredFont(forTextStyle: .body).pointSize - 2` at the new category." BC-3.1 in the design matches this exactly. However, neither document addresses the edge case where `UIFont.preferredFont(forTextStyle: .body).pointSize - 2` is zero or negative — which cannot occur at any current Apple-supported Dynamic Type category (the smallest body size is 14pt, yielding 12pt), but the formula is expressed as an open subtraction with no floor. AC-3.1 relies on the formula string rather than specifying a minimum rendered size. If a future Dynamic Type category or a third-party Dynamic Type override produces a body size ≤ 2pt, the raw editor would render with a zero or negative font size, which UIKit handles by substituting the system default but which could appear as a silent visual regression. The constitution standard (WCAG 1.4.4) requires text to scale to 200% without loss of functionality; a floor of 1pt or an explicit guard would make this requirement unconditionally safe.
 **Recommended action:** `requirements` — add a constraint to AC-3.1 (or a new AC-3.6) specifying that the computed font size has a floor of 1pt, consistent with UIKit's own font-size minimum.
 **Status:** addressed — AC-3.6 added in requirements Revision 1 specifying that the computed raw editor font size has a minimum floor of 1pt, making WCAG 1.4.4 compliance unconditional for any current or future Dynamic Type category.
+
+**Verification (round 1):** Fix confirmed. AC-3.6 is present and unconditional: "a minimum floor of 1pt regardless of the Dynamic Type category." The design's `configureAppearance()` snippet uses `let size = max(1, rawSize)`, which is unconditional. The behavioral constraint in Component 3 states "Computed font size has a minimum floor of 1pt" with no carve-outs. No adjacent gap introduced.
 
 ---
 
@@ -73,3 +90,17 @@ The following items concern *how* the design implements things rather than *what
 **Design §Component 1, BC-1.4:** States "`UIApplication.shared.open` handles http/https, mailto, and custom-scheme URLs." SwiftUI's `openURL` environment action does not call `UIApplication.shared.open` directly — it goes through the SwiftUI environment delegation chain before reaching the UIKit layer. The claim is factually imprecise as a description of SwiftUI's mechanism, though the behavioral outcome (OS handles the URL) is correct. *Implementation prescription, not behavioral constraint.*
 
 **Design §Component 5, `.onChange(of: mode)` ordering note:** The design instructs placing the new `.onChange` modifier "after the existing `.onChange(of: scenePhase)` modifier." Modifier ordering in SwiftUI affects rendering aesthetics but not the functional behavior of unrelated `.onChange` observers. This is a style guideline, not a behavioral constraint. *Implementation prescription, not behavioral constraint.*
+
+---
+
+## Verification summary (round 1)
+
+All five findings verified as genuinely fixed. No new open findings. No adjacent gaps introduced by any fix. The feature spec is clear to implement.
+
+| Finding | Severity | Fix verdict |
+|---------|----------|-------------|
+| F-001 | HIGH | Confirmed — timing race eliminated; all four triggering paths explicitly covered |
+| F-002 | HIGH | Confirmed — AC-2.2/AC-2.5 are behavioral (XCUITest criterion); MarkdownUI fallback present in design |
+| F-003 | MEDIUM | Confirmed — both dismissal paths (user "Dismiss" and fileExporter success) post .layoutChanged |
+| F-004 | LOW | Confirmed — AC-4.6 explicitly disallows bare "Dismiss"; design label is "Dismiss file deleted notice" |
+| F-005 | LOW | Confirmed — AC-3.6 is present and unconditional; design uses max(1, rawSize) |
