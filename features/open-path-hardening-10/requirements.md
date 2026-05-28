@@ -8,7 +8,7 @@ These terms are used with fixed meaning throughout. Acceptance criteria referenc
 
 - **Open path** — the sequence from a file URL handed to `BrowserHostController` (system browser pick or resume) through `loadMarkdownDocument` and `MarkdownDocument` construction to the point a document is presented in `DocumentView`. This feature governs that span and nothing downstream.
 - **Picked file** — the URL the user selected in the system document browser (or that resume hands in). It may or may not still resolve, be readable, or be UTF-8 by the time the load runs.
-- **Well-formed UTF-8** — bytes that decode under strict UTF-8 with no replacement, with or without a leading BOM (`EF BB BF`). A leading BOM is permitted input; whether it is stripped from the buffer is a design call (see open items).
+- **Well-formed UTF-8** — bytes that decode under strict UTF-8 with no replacement, with or without a leading BOM (`EF BB BF`). A leading BOM is permitted input; the BOM bytes are retained in the in-memory buffer (so a no-edit save round-trips the original file byte-for-byte) but are not rendered as a visible character. *Addresses adversarial F-001.*
 - **Non-UTF-8 bytes** — bytes that do not decode under strict UTF-8 (e.g. Latin-1 with high bytes, UTF-16 with a BOM, mixed-encoding files, truncated multi-byte sequences).
 - **Lossy decode** — a decode that replaces undecodable byte sequences with the Unicode replacement character (`U+FFFD`) and returns a `String` rather than failing. Behaviorally observable: the resulting buffer contains `U+FFFD` where bytes were unmappable.
 - **Labeled lossy decode** — a lossy decode whose result is presented to the user with a visible label (banner, alert, or equivalent surface) stating the file was not valid UTF-8 and was opened with substitutions. "Labeled" means the user is told before they edit; an unlabeled lossy decode is a silent failure and is forbidden.
@@ -31,7 +31,7 @@ These terms are used with fixed meaning throughout. Acceptance criteria referenc
 Acceptance criteria:
 - BR-1.1 Given a well-formed UTF-8 file at or below the size ceiling, opening it produces a presented document and no alert, no banner, no label.
 - BR-1.2 The buffer equals the on-disk content (byte-for-byte after the existing newline-normalization rules already applied by the load path).
-- BR-1.3 A well-formed UTF-8 file with a leading BOM opens without error; the rendered output does not display the BOM as a visible character. (Whether the BOM byte is retained in the buffer for the round-trip save is a design decision — see open items — but its visible absence in the rendered surface is a requirement.)
+- BR-1.3 A well-formed UTF-8 file with a leading BOM opens without error; the rendered output does not display the BOM as a visible character. The BOM is retained in the in-memory buffer so that a no-edit save round-trips the original bytes; the BOM does not render as a visible character. *Addresses adversarial F-001.*
 - BR-1.4 No measurable latency regression on the normal-size happy path attributable to this feature's added checks (size pre-check, decode policy). "Measurable" here is on the order of human perception, not a microbenchmark.
 
 ### BR-2 — Non-UTF-8 file produces a labeled outcome, never silent failure
@@ -129,10 +129,10 @@ The following need architectural resolution before requirements can be marked fu
 
 2. **Size ceiling value (BR-4.3).** Design must pin the numeric byte ceiling. The behavioral constraint is "high enough that no realistic prose markdown file is rejected, low enough that the largest accepted file cannot OOM the open path on the lowest supported iOS device." Until pinned, BR-4 tests can assert the at-boundary, just-above, and far-above shapes (using whatever constant design provides) but cannot independently judge whether the number is well-chosen.
 
-3. **BOM retention in the buffer (BR-1.3).** Design must decide whether a leading UTF-8 BOM is stripped from the buffer on load (and therefore not round-tripped on save) or retained. The requirement pins that the BOM does not display as a visible character; whether it survives a round-trip is a save-path interaction with `save-bridge-hardening-9` and needs a single answer.
+3. **BOM retention in the buffer (BR-1.3).** *Resolved by user judgment on adversarial F-001:* the BOM is retained in the in-memory buffer so that a no-edit save round-trips the original bytes; the BOM does not render as a visible character. Design must implement accordingly (load preserves the BOM bytes; the renderer suppresses the BOM glyph). No save-path change is implied — the buffer carries the BOM through to save unchanged, preserving OOS-4.
 
 4. **Disambiguation of permission-denied vs. moved/removed at the OS-error layer (BR-3.2).** The OS does not always cleanly distinguish "file is gone" from "you can't see it any more" — both can manifest as `NSCocoaErrorDomain` codes that overlap. Design must specify the mapping from the OS error classes the load path actually encounters to the two named alert variants, so BR-3.2's tests have a deterministic mapping to assert. If the mapping cannot be made deterministic, the fallback is a single combined "couldn't read this file" alert, which is still strictly better than the silent no-op the declaration forbids.
 
 These are scoping/parameter decisions, not contradictions in intent. The behavioral surface above is complete; only the four parameters/decisions above must be pinned by design and fed back into BR-1.3, BR-2, BR-3.2, and BR-4.
 
-Requirements stable — architectural questions resolved in design.md (see DC-2, DC-3, DC-5, DC-8).
+Requirements stable — no architectural feedback to incorporate. The BOM-retention question (formerly open item #3) is pinned per user judgment on adversarial F-001; the remaining items (decode policy, ceiling value, OS-error mapping) and the open adversarial findings (F-002, F-003) are routed to architecture for resolution in design.md.
