@@ -40,6 +40,6 @@ Someone who already has markdown files and already knows where they live — a w
 2. **Last-file resume on launch** — persist the last-opened file via security-scoped bookmark and reopen it directly on subsequent launches. Touches: File access layer, Document browser entry.
 3. **External-change handling + conflict resolution** — silent absorption when clean; three-option sheet (Keep Mine / Keep Theirs / Discard Mine) when dirty; follow-on-move; deletion banner with Save As. Touches: File access layer, Document model, Conflict & lifecycle UI.
 4. **Scroll-anchor preservation across mode switches** — nearest-heading anchor with fractional-scroll fallback. Touches: Mode switcher, Rendered view, Raw editor.
-5. **New file creation** — create a new file in the directory of the last-opened file, auto-incremented `Untitled.md` naming. Touches: File access layer, Conflict & lifecycle UI, Document browser entry.
+5. ~~**New file creation** — create a new file in the directory of the last-opened file, auto-incremented `Untitled.md` naming. Touches: File access layer, Conflict & lifecycle UI, Document browser entry.~~ *(superseded)*
 6. **Native editing polish** — list continuation, smart-quote/dash suppression, autocorrect on, `Cmd+/` shortcut, swipe gestures. Touches: Raw editor, Mode switcher.
 7. **Accessibility pass** — VoiceOver labels and traits, Dynamic Type, heading/list/link semantics in rendered view, "Edit" accessibility action. Touches: Rendered view, Raw editor, Mode switcher, Conflict & lifecycle UI.
