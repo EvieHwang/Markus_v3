@@ -83,4 +83,66 @@ Every DC traces to at least one suite — see the suite table at the top. DC-9 i
 
 ## Task → test mapping
 
-*To be populated by `/dag` after the DAG is committed. Each task in `dag.md` will be listed here with the suite(s)/case(s) whose acceptance condition it satisfies. Every task must map to at least one test.*
+Authoritative mapping from `dag.md` task IDs to the test suite(s) / case(s) whose acceptance condition each task satisfies. Every task maps to at least one test.
+
+### T-001 — `WriteOutcomeBus` + success-only side-effect gating (DC-1/2/3)
+
+Verified by **`WriteOutcomeBus`** suite (all 7 cases):
+- `A successful write resolves as .success on the outcome bus`
+- `A thrown write resolves as .failure carrying the underlying error message`
+- `On failure, lastKnownDiskContent is not updated`
+- `On failure, the settle window is not opened`
+- `On success, lastKnownDiskContent is updated and the settle window opens once`
+- `After failure the buffer remains dirty against lastKnownDiskContent`
+- `A successful write after a failure clears dirty state via the normal success path`
+
+### T-002 — `ReconciliationLiftRefresh` (DC-16/17/18/19/20)
+
+Verified by **`LiftRefresh`** suite (all 8 cases):
+- `Lift on content-identity refreshes lastKnownDiskContent to the settled bytes`
+- `After lift on identity, the next save is a no-op (buffer == newLastKnownDisk)`
+- `The refresh adopts settled bytes, not a stale snapshot`
+- `The lift refresh never mutates the buffer (only lastKnownDiskContent)`
+- `A character typed between sample and lift is preserved; refresh stays on lastKnownDiskContent`
+- `Lift on a moved successor refreshes lastKnownDiskContent against the new location`
+- `The re-present branch does NOT refresh lastKnownDiskContent`
+- `If the coordinated read returns nil, no lift fires and no refresh occurs`
+
+### T-003 — Coordinated write + save-back gate + scoped-resource discipline (DC-4/5/6/7/8/9)
+
+Verified by:
+
+**`SaveBackGatePrecedence`** suite (all 3):
+- `A gated-out attempt acquires no coordinator and records no outcome`
+- `Coordinator wrapping does not bypass the suspension gate`
+- `Once the gate allows, the next attempt does enter the coordinator`
+
+**`CoordinatedWriteSeam`** suite (all 5):
+- `Every write attempt enters the coordinator`
+- `Immediate-flush (saveSynchronously) attempts are coordinated too`
+- `Coordinator acquisition failure is .failure; no uncoordinated fallback`
+- `Atomic write throwing inside the coordinated block is a clean failure`
+- `Two writes through the same coordinator do not interleave (serialization seam)`
+
+**`ScopedResourceDiscipline`** suite (all 3):
+- `A successful write balances start/stop exactly once`
+- `A failed write still balances start/stop`
+- `Repeated failures do not leak; a subsequent success still works`
+
+DC-9 (no new user-visible delay) is observational; covered by the steady-state success-path cases above and the existing external-change-5 regression — see DC-9 note at top of this file.
+
+### T-004 — `SaveFailedAlertRouter` (DC-10/11/12/13/14/15)
+
+Verified by **`SaveFailedAlertRouter`** suite (all 10 cases):
+- `A failure surfaces the existing saveFailed alert`
+- `The alert message carries the underlying error's localized description`
+- `Dismiss closes the alert; no retry, no queue, no clearing of dirty`
+- `Multiple rapid failures present at most one alert; the latest error wins`
+- `A success after a dismissed failure does not re-present the prior alert`
+- `A failure while no view is alive is latched and presented on next foreground`
+- `Background latch reflects the most recent failure`
+- `Save-failed alert does not pre-empt a presented conflict sheet`
+- `After the conflict surface clears, a still-pending save-failed alert may surface`
+- `Bridge router and SaveStatusObserver do not double-fire on the same failure`
+
+Every task has at least one verifying test case. Coverage check: ✓.
