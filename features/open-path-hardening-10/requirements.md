@@ -134,3 +134,5 @@ The following need architectural resolution before requirements can be marked fu
 4. **Disambiguation of permission-denied vs. moved/removed at the OS-error layer (BR-3.2).** The OS does not always cleanly distinguish "file is gone" from "you can't see it any more" — both can manifest as `NSCocoaErrorDomain` codes that overlap. Design must specify the mapping from the OS error classes the load path actually encounters to the two named alert variants, so BR-3.2's tests have a deterministic mapping to assert. If the mapping cannot be made deterministic, the fallback is a single combined "couldn't read this file" alert, which is still strictly better than the silent no-op the declaration forbids.
 
 These are scoping/parameter decisions, not contradictions in intent. The behavioral surface above is complete; only the four parameters/decisions above must be pinned by design and fed back into BR-1.3, BR-2, BR-3.2, and BR-4.
+
+Requirements stable — architectural questions resolved in design.md (see DC-2, DC-3, DC-5, DC-8).
