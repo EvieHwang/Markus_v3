@@ -5,7 +5,7 @@
 **Deferred-question resolution.** This design resolves all four architecture-flagged questions raised at the bottom of `requirements.md`:
 - (1) Decode policy choice for non-UTF-8 (BR-2) → §Decode policy, DC-2 — **policy (b), surfaced encoding error**.
 - (2) Size ceiling value (BR-4.3) → §Size ceiling, DC-5 — **20 MiB (20 × 1024 × 1024 = 20 971 520 bytes)**, inclusive.
-- (3) BOM retention in the buffer (BR-1.3) → §Decode policy, DC-3 — **strip on load**, do not round-trip.
+- (3) BOM retention in the buffer (BR-1.3) → §Decode policy, DC-3 — **retain in buffer, suppress at render**, no-edit save round-trips original bytes. *Addresses adversarial F-001.*
 - (4) Permission-denied vs moved/removed mapping (BR-3.2) → §Failure mapping, DC-8 — explicit OS-error mapping with a generic-fallback alert variant for the ambiguous case.
 
 None of the four resolutions required changing any requirement *text*. The requirements bottom marker has accordingly been flipped to "Requirements stable — architectural questions resolved in design.md (see DC-2, DC-3, DC-5, DC-8)".
@@ -30,7 +30,7 @@ The four stages, in order, with the failure surface each one owns:
 1. **Resolve & scope-acquire** — security-scoped resource access for the picked URL. Failure → permission-denied surface (DC-6, DC-8).
 2. **Size pre-check** — attribute-only byte-size read against the ceiling. Failure → too-large surface (DC-5) OR moved/removed surface if the file no longer resolves (DC-6, DC-8).
 3. **Coordinated read** — read the file bytes into `Data`. Failure → moved/removed or permission-denied or generic-read surface (DC-6, DC-8).
-4. **Strict UTF-8 decode** — bytes → `String` under strict UTF-8 (with leading BOM stripped, DC-3). Failure → encoding error surface (DC-2).
+4. **Strict UTF-8 decode** — bytes → `String` under strict UTF-8 (leading BOM, if present, is retained in the buffer but suppressed at render time, DC-3). Failure → encoding error surface (DC-2).
 
 Only if all four stages succeed is a `MarkdownDocument` constructed and `presentDocument(at:)` proceeds to install the detector, save bridge, and editor exactly as it does today. Every other terminal state is an alert through the existing `ActiveAlert` channel, with security scope released (DC-9) and the previously-presented document (if any) untouched (DC-10).
 
@@ -62,7 +62,7 @@ Rationale for picking (b) over (a):
 - **It is consistent with OOS-1 (no encoding detection / heuristics).** Once Markus has decided not to guess, "open with substitutions" is the partial-guess case: it pretends a Latin-1 file is a UTF-8 file with damage. Refusing to open is the honest answer.
 - The user is not stuck: the alert names the file as not valid UTF-8; the user can convert it externally (the project assumes Files-app-fluent users) and re-pick.
 
-**DC-3 — A leading UTF-8 BOM is stripped on load and is not re-emitted on save (DEFERRED QUESTION 3).** When the picked file's first three bytes are `EF BB BF` followed by valid UTF-8, the decode strips those three bytes; the resulting buffer (and therefore the round-trip save) does not contain the BOM. The observable properties: (i) the rendered surface does not display a leading zero-width character (BR-1.3); (ii) a save of an unmodified BOM-prefixed file produces a file whose bytes are the original file's bytes *minus the BOM*. Rationale: the project's "plain `.md`" stance treats the BOM as a non-content artifact; UTF-8 BOMs are advisory and most modern markdown tooling either ignores or actively dislikes them. Stripping on load makes the canonical in-memory form unambiguous (no "is the leading BOM part of the buffer or not?" question for the editor or for the content-equality gate `external-change-5`/DC-11 uses) and produces a deterministic round-trip. The save-side consequence (one byte difference between original and round-tripped file when the original had a BOM) is documented here and flagged to `save-bridge-hardening-9` only as an acknowledged round-trip difference — it does not require any change there.
+**DC-3 — A leading UTF-8 BOM is retained in the in-memory buffer and suppressed at render time; a no-edit save round-trips the original bytes (DEFERRED QUESTION 3). *Addresses adversarial F-001.*** When the picked file's first three bytes are `EF BB BF` followed by valid UTF-8, the decode preserves those three bytes in the in-memory buffer. The observable properties: (i) the rendered surface does not display the BOM as a visible character — the renderer and editor surfaces suppress the leading `U+FEFF` glyph so the user never sees a stray zero-width character or any visible artifact (BR-1.3); (ii) a save of an unmodified BOM-prefixed file produces a file whose bytes are byte-for-byte identical to the original (the BOM survives the round trip). This design closes the save-side scope-drift surfaced by adversarial F-001: the feature does **not** touch the save side. The buffer-with-BOM is what the existing save path writes; because the buffer matches the on-disk bytes on a no-edit save, no save-path behavior changes and OOS-4 / `declaration.md` §Shape touched ("Does not touch: File access layer save side") holds. The content-equality gate that `external-change-5`/DC-11 uses operates on the full in-memory buffer including the BOM; this is consistent with prior behavior because, today, a file that decoded successfully (the only path that reached that gate) did not strip its BOM either. Rationale for retention over stripping: the project's "lens over the user's existing files" stance forbids silent destructive round-trips; a writer whose sync pipeline (git, build script, downstream tool) treats the BOM as significant must not see a one-time byte change the first time Markus is used to round-trip the file.
 
 ### 3. Size ceiling (Document browser entry) — *DEFERRED QUESTION 2*
 
@@ -84,6 +84,8 @@ The ceiling is design-fixed and not user-configurable (OOS-6).
 - a generic-couldn't-read fallback case (DC-8, for the ambiguous OS error class).
 
 These are additional cases on the existing enum; they render through the same `.alert(...)` modifier the host already drives. They are not a parallel surface, a banner, a toast, or a sheet (`Reuses seam: ActiveAlert + the host's alert modifier`).
+
+**DC-6a — The alert host for the open-path alerts is the `BrowserHostController`'s root host view, not `DocumentView`. *Addresses adversarial F-002.*** Because the open-path alerts can fire when no document is yet presented — specifically: a cold launch where the system document browser is on screen and the user picks a file that triggers any of the four surfaces, or any browser-idle moment between documents — the `.alert(item: $activeAlert)` modifier for these surfaces is bound to the `BrowserHostController`'s root host view (the SwiftUI view that wraps the system document browser and is on screen for the entire browser-idle lifetime, including before any document has ever been presented in this session). Concretely: the `ActiveAlert` state that the open-path failure mapping writes is owned by `BrowserHostController` and an `.alert(item:)` modifier on its root view renders it. The `DocumentView` retains its own `.alert(item:)` for *running-document* surfaces (the existing `external-change-5` cases — reload-time `invalidEncoding`, `iCloudDownloadFailed`, etc.), unchanged by this feature. The observable property the requirements pin (DC-1, BR-3.1): in every browser-idle state — cold launch, between-documents, after a failed pick with no prior document — the alert host is on screen and `.alert(...)`-bound to the `ActiveAlert` channel before the failure mapping writes to it, so no failure can produce an `ActiveAlert` that has no view rendering it. Test stages: cold-launch → pick a non-UTF-8 / oversized / permission-denied / moved file → assert the alert is presented on screen (no silent no-op in the no-document case).
 
 **DC-7 — Alert text names the failure specifically enough for the user to act.** Each surface uses wording that distinguishes it from the other three:
 - Encoding error: substantively "This file isn't UTF-8 and can't be opened in Markus." (BR-2.4, BR-3.2)
@@ -116,7 +118,7 @@ Rationale: the requirements explicitly named this fallback as the acceptable ret
 
 **DC-10 — A failure on a later open does not tear down a previously-presented document (BR-3.4).** The four new alert surfaces are presented through the host's alert channel, which is independent of the editor's own state. A pick that fails after a document is already presented produces only the alert; the previously-presented document, its buffer, its dirty state, its detector, and its save bridge are not torn down by the failure. The observable property: open file A (clean or dirty), pick file B that triggers any of the four surfaces, dismiss → file A is still presented and its edits, cursor, and mode are intact.
 
-**DC-11 — The resume path uses the same load pipeline (BR-16).** When the resume flow (`resume-and-detector-hardening-11`) hands a URL into the open path, it goes through the same four stages with the same surfaces. A non-UTF-8 resume target produces the encoding alert (DC-2); an oversized resume target produces the too-large alert (DC-5); a vanished resume target produces the moved/removed alert (DC-8) — or is recovered by bookmark fallback per `resume-and-detector-hardening-11`'s own BR, whichever runs first. This feature does not introduce a resume-specific bypass.
+**DC-11 — The resume path uses the same load pipeline (BR-16).** When the resume flow (`resume-and-detector-hardening-11`) hands a URL into the open path, it goes through the same four stages with the same surfaces. A non-UTF-8 resume target produces the encoding alert (DC-2); an oversized resume target produces the too-large alert (DC-5); a vanished resume target produces the moved/removed alert (DC-8) — or is recovered by bookmark fallback per `resume-and-detector-hardening-11`'s own BR, whichever runs first. This feature does not introduce a resume-specific bypass. **Ordering contract this feature relies on. *Addresses adversarial F-003.*** The resume path resolves its URL — including any bookmark-fallback recovery owned by `resume-and-detector-hardening-11` — *before* handing the URL to this feature's open pipeline; consequently this feature never observes a vanished-then-recovered URL, and the moved/removed alert (DC-8) never fires for a URL that the bookmark fallback would have rescued. If that contract is violated upstream, the worst case is a moved/removed alert that is then visually displaced by a successful open; the safety net for that is `resume-and-detector-hardening-11`'s responsibility, not this feature's.
 
 ---
 
@@ -146,7 +148,7 @@ picked URL  ──────────────────────�
         │      └── error ──► failure mapping (DC-8): moved/removed | permission-denied | generic
         │                  ──► release scope ──► alert
         │
-        │   stage 4: strict UTF-8 decode (BOM stripped — DC-3)
+        │   stage 4: strict UTF-8 decode (BOM retained in buffer, suppressed at render — DC-3)
         │      ├── ok ──► MarkdownDocument constructed
         │      └── fails ──► encoding-error surface (DC-2/6) ──► release scope ──► alert
         │
@@ -168,7 +170,8 @@ These restate the now-pinned values so spec tests can assert concretely:
 
 - **Size ceiling = 20 971 520 bytes, inclusive** (DC-5). Tests stage: a file at exactly 20 971 520 bytes opens (BR-4.6); a file at 20 971 521 bytes produces the too-large alert; a 500 MB file produces the too-large alert with no measurable memory spike (BR-4.2).
 - **Decode policy = (b) surfaced encoding error** (DC-2). Tests stage: a Latin-1 file with high bytes → encoding alert, no document; a UTF-16 BE/LE file → encoding alert; a mixed-encoding file (valid UTF-8 prefix, invalid tail per BR-11) → encoding alert (no truncated document).
-- **BOM stripped on load** (DC-3). Tests stage: an `EF BB BF` + valid UTF-8 file opens without an alert; the buffer's first character is the first character *after* the BOM; a save round-trip writes the file *without* the BOM.
+- **BOM retained in buffer, suppressed at render, round-trips on no-edit save** (DC-3). Tests stage: an `EF BB BF` + valid UTF-8 file opens without an alert; the rendered view does not display the BOM as a visible character; the in-memory buffer's leading bytes include `EF BB BF`; a no-edit save writes a file whose bytes are byte-identical to the original (BOM preserved).
+- **Open-path alert host is `BrowserHostController`'s root view, on screen during browser-idle** (DC-6a). Tests stage: cold launch → pick a file that triggers each of the four surfaces in turn → assert an alert is on screen each time (no silent no-op in the no-document case).
 - **Silent-no-op is unreachable** (DC-1). Tests stage every failure mode and assert an `ActiveAlert` is non-nil before the browser is idle again.
 - **Failure mapping is deterministic where the OS is unambiguous, generic otherwise** (DC-8). Tests stage: simulate `NSFileReadNoPermissionError` → permission-denied alert; simulate `NSFileReadNoSuchFileError` → moved/removed alert; simulate an `NSFileReadUnknownError` → generic-couldn't-read alert.
 - **Scope is released on every failure path** (DC-9). Tests stage repeated failed opens on the same URL and assert no scope-count leak (no zombie scope-access on subsequent successful opens).
@@ -179,7 +182,7 @@ These restate the now-pinned values so spec tests can assert concretely:
 
 ## Upstream marker maintenance
 
-The four deferred questions in `requirements.md` were the only items blocking its "stable" marker; each is resolved above (DC-2, DC-3, DC-5, DC-8) without any change to requirement *text*. The "Architectural feedback" section's closing in `requirements.md` has been flipped to "Requirements stable — architectural questions resolved in design.md (see DC-2, DC-3, DC-5, DC-8)." per the `/spec` Stage-2 instructions.
+The four deferred questions in `requirements.md` were the only items blocking its "stable" marker; each is resolved above (DC-2, DC-3, DC-5, DC-8). BR-1.3 was subsequently revised in `requirements.md` to pin BOM **retention** (per user judgment on adversarial F-001); DC-3 has been updated to match. No further requirement-text changes are flagged by this revision pass: the alert-host pinning (DC-6a, addressing F-002) and the resume ordering contract (DC-11, addressing F-003) are both behavioral elaborations that fit inside the existing BR-3 / BR-16 surfaces and require no new requirement text.
 
 ---
 
