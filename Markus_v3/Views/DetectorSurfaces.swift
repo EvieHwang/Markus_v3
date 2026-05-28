@@ -30,6 +30,9 @@ struct DetectorSurfaces: View {
             ) { result in
                 if case let .success(url) = result {
                     detector.completeSaveAs(to: url)   // BR-9.4 — continue at new location
+                    // AC-4.9: banner is removed; move VoiceOver focus off the
+                    // now-invisible controls.
+                    UIAccessibility.post(notification: .layoutChanged, argument: nil)
                 }
             }
     }
@@ -58,10 +61,18 @@ struct DetectorSurfaces: View {
             VStack(spacing: 12) {
                 Button("Keep Mine") { detector.resolveConflict(.keepMine) }
                     .accessibilityIdentifier("ConflictKeepMine")
+                    .accessibilityLabel(String(localized: "Keep My Version",
+                                               comment: "VoiceOver label for conflict sheet Keep Mine button"))
                 Button("Keep Theirs") { detector.resolveConflict(.keepTheirs) }
                     .accessibilityIdentifier("ConflictKeepTheirs")
+                    .accessibilityLabel(String(localized: "Keep Their Version",
+                                               comment: "VoiceOver label for conflict sheet Keep Theirs button"))
                 Button("Discard Mine", role: .destructive) { detector.resolveConflict(.discardMine) }
                     .accessibilityIdentifier("ConflictDiscardMine")
+                    .accessibilityLabel(String(localized: "Discard My Changes",
+                                               comment: "VoiceOver label for conflict sheet Discard Mine button"))
+                    .accessibilityHint(String(localized: "Your local edits cannot be recovered after this action.",
+                                              comment: "VoiceOver hint for irreversible Discard Mine action"))
             }
             .buttonStyle(.borderedProminent)
         }
@@ -82,8 +93,16 @@ struct DetectorSurfaces: View {
                 Spacer()
                 Button("Save As") { showSaveAs = true }
                     .accessibilityIdentifier("DeletionBannerSaveAs")
-                Button("Dismiss") { detector.dismissDeletionBanner() }
-                    .accessibilityIdentifier("DeletionBannerDismiss")
+                    .accessibilityLabel(String(localized: "Save to New Location",
+                                               comment: "VoiceOver label for deletion banner Save As button"))
+                Button("Dismiss") {
+                    detector.dismissDeletionBanner()
+                    // AC-4.9: move VoiceOver focus off the now-invisible banner.
+                    UIAccessibility.post(notification: .layoutChanged, argument: nil)
+                }
+                .accessibilityIdentifier("DeletionBannerDismiss")
+                .accessibilityLabel(String(localized: "Dismiss file deleted notice",
+                                           comment: "VoiceOver label for deletion banner Dismiss button"))
             }
             .padding()
             .background(.thinMaterial)

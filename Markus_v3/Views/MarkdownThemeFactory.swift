@@ -62,6 +62,7 @@ enum MarkdownThemeFactory {
                         FontWeight(.semibold)
                         FontSize(.em(2.0))
                     }
+                    .accessibilityAddTraits(.isHeader)
             }
             .heading2 { configuration in
                 configuration.label
@@ -70,6 +71,7 @@ enum MarkdownThemeFactory {
                         FontWeight(.semibold)
                         FontSize(.em(1.5))
                     }
+                    .accessibilityAddTraits(.isHeader)
             }
             .heading3 { configuration in
                 configuration.label
@@ -78,6 +80,7 @@ enum MarkdownThemeFactory {
                         FontWeight(.semibold)
                         FontSize(.em(1.25))
                     }
+                    .accessibilityAddTraits(.isHeader)
             }
             .heading4 { configuration in
                 configuration.label
@@ -85,6 +88,7 @@ enum MarkdownThemeFactory {
                     .markdownTextStyle {
                         FontWeight(.semibold)
                     }
+                    .accessibilityAddTraits(.isHeader)
             }
             .heading5 { configuration in
                 configuration.label
@@ -93,6 +97,7 @@ enum MarkdownThemeFactory {
                         FontWeight(.semibold)
                         FontSize(.em(0.875))
                     }
+                    .accessibilityAddTraits(.isHeader)
             }
             .heading6 { configuration in
                 configuration.label
@@ -101,6 +106,7 @@ enum MarkdownThemeFactory {
                         FontWeight(.semibold)
                         FontSize(.em(0.85))
                     }
+                    .accessibilityAddTraits(.isHeader)
             }
     }
 }
