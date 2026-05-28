@@ -2,85 +2,53 @@
 
 ## Overview
 
-Five targeted accessibility changes across four files. All changes are additive
-to the accessibility tree; no visible rendering changes. No new files are
-created; no existing interfaces are broken.
+Five surgical accessibility fixes across four components. All changes are purely additive to the accessibility tree or replace a blocking override with platform-default behavior. No visual rendering changes. No new components created.
 
 ---
 
-## Component 1 — RenderedView (link behavior)
-
-**File:** `Markus_v3/Views/RenderedView.swift`
+## Component 1 — RenderedView (`Markus_v3/Views/RenderedView.swift`)
 
 ### Behavioral constraints
 
-- BC-1.1: When a user activates a link element in the rendered view — by tap or
-  by VoiceOver double-tap — the system `openURL` environment action is invoked
-  with the link's URL. The document mode remains `.rendered`. No mode switch
-  occurs.
-- BC-1.2: When a user taps any area of the rendered view that is not a link,
-  `onTap(fractionalY)` fires and the document transitions to `.raw` mode, exactly
-  as before.
-- BC-1.3: The VoiceOver "Edit" custom accessibility action (`.accessibilityAction(named: "Edit")`)
-  continues to call `onTap(nil)`, transitioning the document to `.raw` mode.
-- BC-1.4: SwiftUI's default `openURL` environment propagation is in effect for
-  the `Markdown(...)` content. `UIApplication.shared.open` handles http/https,
-  mailto, and custom-scheme URLs. An unregistered scheme is silently ignored by
-  the OS; no crash, no mode switch.
-- BC-1.5: `simulateLinkTap(_:)` no longer calls `onTap`. It is a no-op (or is
-  removed). Tests that previously asserted a mode switch on link tap must be
-  updated to assert no mode switch (the URL is passed to `openURL` instead).
+- **Link activation opens the URL.** When a user (sighted or VoiceOver) activates any link element inside the rendered Markdown, the system's default URL handler opens the URL. The document mode does not change as a result of link activation.
+- **Non-link taps enter raw mode.** A tap on any area of the rendered view that is not a link element triggers `onTap(fractionalY)`, which transitions the document to `.raw` mode. This path is unchanged.
+- **VoiceOver "Edit" action enters raw mode.** The `.accessibilityAction(named: "Edit")` closure, which calls `onTap(nil)`, is unchanged. VoiceOver users retain a dedicated, clearly-labeled path to edit mode.
+- **`simulateLinkTap` is a no-op.** After removing the `OpenURLAction` override, `simulateLinkTap(_:)` no longer has a meaningful behavior to simulate (the URL is dispatched to the system, not to this view's closure). The method body becomes empty or the method is removed entirely. Tests that previously used it to assert a mode switch must be updated to reflect that link taps do not switch modes.
+- **Unregistered URL schemes produce no crash and no mode switch.** `mailto:`, custom-scheme, and unregistered scheme URLs are passed to the system; the OS handles or silently ignores them.
 
 ### Change
 
-Remove the `.environment(\.openURL, OpenURLAction { _ in ... })` modifier block
-(lines 64–67 of current source). This unblocks SwiftUI's default URL-opening
-path. The `.onTapGesture` block remains untouched.
+Remove the `.environment(\.openURL, OpenURLAction { _ in ... })` modifier block (lines 64–67 of current source). The SwiftUI `openURL` environment reverts to the default, which calls `UIApplication.shared.open(_:options:completionHandler:)`. The `.onTapGesture` modifier, the `.accessibilityAction`, and the swipe gesture are untouched.
 
-Update or remove `simulateLinkTap(_:)`: after removal of the override, calling
-`onTap(nil)` from that helper is semantically wrong. The helper either becomes a
-no-op or is deleted and any callers are updated accordingly.
+Update `simulateLinkTap(_:)` to an empty body (or remove it), since its former behavior — calling `onTap(nil)` — is no longer the correct representation of link activation.
 
-### Seam
+### Contracts
 
-`RenderedView` receives `onTap` from `DocumentView`. The `onTap` callback is
-unchanged in signature; only the path that previously triggered it (link
-activation) is removed. `DocumentView` needs no change for this concern.
-
-### Contracts preserved
-
-- `.accessibilityAction(named: "Edit")` remains the VoiceOver path to edit mode.
+- `onTap: (Double?) -> Void` — called only on non-link taps. Not called on link activation. This is the same closure type as before; the behavioral contract narrows.
+- The `openURL` environment is not overridden; SwiftUI resolves it from the system.
 - `.accessibilityIdentifier("RenderedView")` is unchanged.
 - `simulateTap()` is unchanged.
 
+### Seam relationships
+
+- `DocumentView` supplies the `onTap` closure to `RenderedView`. After this change, `DocumentView` receives no callback for link taps. No change to `DocumentView` is required for this concern.
+
 ---
 
-## Component 2 — MarkdownThemeFactory (heading traits)
-
-**File:** `Markus_v3/Views/MarkdownThemeFactory.swift`
+## Component 2 — MarkdownThemeFactory (`Markus_v3/Views/MarkdownThemeFactory.swift`)
 
 ### Behavioral constraints
 
-- BC-2.1: Each heading view (H1 through H6) carries the UIAccessibility trait
-  `.isHeader`. VoiceOver's headings rotor finds and navigates between all six
-  heading levels in document order.
-- BC-2.2: Body paragraphs, list items, and code blocks carry no `.isHeader`
-  trait.
-- BC-2.3: Visual output is identical — font size, weight, and margins are
-  unchanged. The trait is metadata only.
-- BC-2.4: The `.isHeader` trait persists across Dynamic Type size changes. Because
-  `RenderedView` rebuilds its body on `dynamicTypeSize` changes (triggering
-  `makeTheme()` again), the rebuilt view builders include the trait by construction.
+- **Each heading view carries the `.isHeader` accessibility trait.** For every rendered heading element (H1–H6), VoiceOver reports the element as a heading. The VoiceOver heading-navigation rotor finds and traverses these elements in document order.
+- **Body text does not carry `.isHeader`.** Only elements produced by the `heading1`–`heading6` theme closures receive the trait. Paragraphs, list items, and code blocks are unaffected.
+- **Visual output is unchanged.** Font size, weight, color, and margin on all heading levels remain exactly as currently configured.
+- **Trait survives Dynamic Type changes.** Because the trait is applied inside the heading builder closure (evaluated at render time), and because `RenderedView` re-renders when `@Environment(\.dynamicTypeSize)` changes, the trait is present on every re-render.
 
 ### Change
 
-In each of the six heading builder closures (`heading1` … `heading6`), append
-`.accessibilityAddTraits(.isHeader)` to `configuration.label` — the same object
-on which `.markdownMargin` and `.markdownTextStyle` are already called. The
-trait must be applied to the label view directly, not to a wrapper, so that
-MarkdownUI's layout hierarchy presents the trait on the heading element itself.
+In each of the six heading closures (`heading1` through `heading6`), append `.accessibilityAddTraits(.isHeader)` directly to `configuration.label` before or after the existing `.markdownMargin` and `.markdownTextStyle` modifiers. The trait must be applied to `configuration.label` (the heading's native view), not to a containing wrapper, so that MarkdownUI propagates it correctly into the accessibility tree.
 
-Example pattern for each heading level:
+Example shape for `heading1` (others follow the same pattern):
 
 ```swift
 .heading1 { configuration in
@@ -96,49 +64,38 @@ Example pattern for each heading level:
 
 Apply identically to heading2 through heading6.
 
-### Seam
+### Contracts
 
-`MarkdownThemeFactory` is stateless and has no callers to update. `RenderedView`
-calls `makeTheme()` at body-build time. No contract change.
+- `makeTheme() -> Theme` — return type and call site in `RenderedView` are unchanged. The returned `Theme` now includes `.isHeader` traits on all six heading levels.
+- `headingFont(level:)` and `bodyFont()` are unchanged; existing typography tests need no updates for this concern.
+
+### Seam relationships
+
+- `RenderedView` calls `MarkdownThemeFactory.makeTheme()` at body-build time. No change to the call site.
+
+Reuses pattern: **UX checklist** — Apple HIG requires structural roles to be reflected programmatically; `.isHeader` is the iOS accessibility primitive for heading semantics (WCAG 1.3.1 — Info and Relationships).
 
 ---
 
-## Component 3 — MarkdownEditorTextView (Dynamic Type live update)
-
-**File:** `Markus_v3/Editor/MarkdownEditorTextView.swift`
+## Component 3 — MarkdownEditorTextView (`Markus_v3/Editor/MarkdownEditorTextView.swift`)
 
 ### Behavioral constraints
 
-- BC-3.1: When `UIContentSizeCategory.didChangeNotification` fires while the
-  view is allocated, `configureAppearance()` runs on the main queue. After it
-  runs, `font` and `typingAttributes[.font]` reflect the new
-  `UIFont.preferredFont(forTextStyle: .body).pointSize - 2` at the current
-  category.
-- BC-3.2: The cursor's position in the document text is preserved across the
-  font update. No text content is lost.
-- BC-3.3: The notification observer is registered exactly once (in `init`) and
-  is removed in `deinit`. No retain cycle exists between the observer token and
-  `self`. No dangling observer fires after deallocation.
-- BC-3.4: Rapid successive notifications result in the view converging to the
-  final category's size. Intermediate updates do not crash or corrupt the text
-  storage.
-- BC-3.5: When the view is not in the window at the time of the notification
-  (rendered mode is active), `configureAppearance()` still runs. When raw mode
-  becomes active again, the text view already shows the correct font — no
-  additional trigger is needed.
+- **Font updates live, without restart.** When `UIContentSizeCategory.didChangeNotification` fires while the view exists, `configureAppearance()` is called on the main queue. The view's `font` and `typingAttributes[.font]` reflect the new Dynamic Type body size immediately within the same app session.
+- **Cursor position is preserved.** Setting `font` and `typingAttributes[.font]` on a `UITextView` does not reset the selection range; the cursor remains at its pre-update position by construction. No explicit save-and-restore of `selectedRange` is needed, but the design explicitly names this as an observable invariant — if a future change to `configureAppearance()` replaces `attributedText` or sets `text = ...`, cursor preservation must be re-examined.
+- **Observer lifecycle matches view lifecycle.** The notification observer is registered during `init` and removed in `deinit`. No dangling observer; no retain cycle. The capture list uses `[weak self]`.
+- **Observer fires on main queue.** The observer is added with `queue: .main` so `configureAppearance()` and any UIKit mutations run on the main thread without an additional dispatch wrapper.
+- **Raw editor is not visible during the change — still correct on return.** If the view is off-screen (rendered mode is active), the notification fires and `configureAppearance()` runs. When raw mode is subsequently shown, the font is already correct. No additional trigger in `MarkdownTextViewBridge` is needed.
+- **Rapid successive changes converge to the final state.** Each notification invocation calls `configureAppearance()` independently. Intermediate states do not cause visible glitches or crashes.
 
 ### Change
 
-Add a stored notification observer token:
+Add a stored `NSObjectProtocol?` token property. In `init`, after the existing `configureTraits()` and `configureAppearance()` calls, register the observer:
 
 ```swift
 private var dynamicTypeObserver: NSObjectProtocol?
-```
 
-In the shared initialization path (called from both `init` variants), register
-the observer after `configureAppearance()`:
-
-```swift
+// in init (both init variants, via a shared setup method or directly):
 dynamicTypeObserver = NotificationCenter.default.addObserver(
     forName: UIContentSizeCategory.didChangeNotification,
     object: nil,
@@ -148,10 +105,7 @@ dynamicTypeObserver = NotificationCenter.default.addObserver(
 }
 ```
 
-Using `[weak self]` prevents a retain cycle. The `queue: .main` parameter
-delivers on the main queue without an extra `DispatchQueue.main.async` wrapper.
-
-In `deinit`, remove the observer:
+Add `deinit` to remove the observer:
 
 ```swift
 deinit {
@@ -161,126 +115,94 @@ deinit {
 }
 ```
 
-`configureAppearance()` already rebuilds `font` and `typingAttributes[.font]`
-from the current system font query, so no changes to that method are required.
-The cursor is preserved because `configureAppearance()` sets `font` and
-`typingAttributes` directly — it does not replace `attributedText` or call
-`text = ...`, which would reset the selection range.
+`configureAppearance()` is unchanged in its logic — it re-reads `UIFont.preferredFont(forTextStyle: .body).pointSize` on every call, which is the correct formula for picking up the new category.
 
-### Seam
+### Contracts
 
-`MarkdownEditorTextView` is a `UITextView` subclass. Its bridge,
-`MarkdownTextViewBridge.Representable`, creates the instance in `makeUIView` and
-holds no direct reference after creation. Lifecycle is UIKit-standard. No
-changes to `MarkdownTextViewBridge` are needed for this concern.
+- `configureAppearance()` — already `private`; its behavior is unchanged. It is now called from two sites: `init` and the notification handler.
+- `deinit` — new addition; removes the stored observer token.
+
+### Seam relationships
+
+- `MarkdownTextViewBridge.Representable.makeUIView` creates a `MarkdownEditorTextView`. Lifecycle is UIKit-standard; `deinit` fires when `UIViewRepresentable` tears down the view. No change to `MarkdownTextViewBridge`.
+- No change to `DocumentView` or `RawEditorView`.
 
 ---
 
-## Component 4 — DetectorSurfaces (accessibility labels and hints)
-
-**File:** `Markus_v3/Views/DetectorSurfaces.swift`
+## Component 4 — DetectorSurfaces (`Markus_v3/Views/DetectorSurfaces.swift`)
 
 ### Behavioral constraints
 
-- BC-4.1: "Keep Mine" button: VoiceOver announces a label describing keeping the
-  user's local version. Visible button title is unchanged.
-- BC-4.2: "Keep Theirs" button: VoiceOver announces a label describing keeping
-  the incoming (remote) version. Visible button title is unchanged.
-- BC-4.3: "Discard Mine" button: VoiceOver announces a label describing
-  discarding local changes, plus a hint that the action is irreversible and
-  local edits cannot be recovered.
-- BC-4.4: "Save As" deletion-banner button: VoiceOver announces a label
-  describing saving the document to a new location.
-- BC-4.5: "Dismiss" deletion-banner button: VoiceOver announces a meaningful
-  label for dismissing the file-deleted notice.
-- BC-4.6: All five `.accessibilityIdentifier` values —
-  `ConflictKeepMine`, `ConflictKeepTheirs`, `ConflictDiscardMine`,
-  `DeletionBannerSaveAs`, `DeletionBannerDismiss` — are preserved exactly. They
-  must not be removed, renamed, or reordered.
-- BC-4.7: When VoiceOver is off, the labels and hints are present in the
-  accessibility tree but produce no observable effect on sighted users.
+- **VoiceOver announces a meaningful label for each button.** Each of the five buttons has an `.accessibilityLabel` that communicates the action to a VoiceOver user in plain language. The visible button title (used for sighted users) is unchanged.
+- **"Discard Mine" has an accessibility hint.** VoiceOver reads a hint on the "Discard Mine" button that explains the action is irreversible and that local edits will be permanently lost. No other button requires a hint.
+- **All `.accessibilityIdentifier` values are preserved.** The identifiers `ConflictKeepMine`, `ConflictKeepTheirs`, `ConflictDiscardMine`, `DeletionBannerSaveAs`, and `DeletionBannerDismiss` remain on their respective buttons, unchanged. UI tests that query by identifier continue to pass.
+- **`.accessibilityLabel` and `.accessibilityIdentifier` co-exist on the same button.** They serve different purposes — test hook vs. announced name — and do not conflict. Both modifiers must be present.
+- **When VoiceOver is off, no observable change.** Labels and hints are present in the accessibility tree but have no effect on sighted users.
 
 ### Change
 
-Add `.accessibilityLabel` and (for "Discard Mine") `.accessibilityHint` after
-each existing `.accessibilityIdentifier`, keeping the identifier modifier first
-so the ordering is easy to audit.
-
-Conflict sheet buttons:
+In `conflictSheet`:
 
 ```swift
 Button("Keep Mine") { detector.resolveConflict(.keepMine) }
     .accessibilityIdentifier("ConflictKeepMine")
-    .accessibilityLabel("Keep My Version")
+    .accessibilityLabel(String(localized: "Keep My Version",
+                               comment: "VoiceOver label for conflict sheet Keep Mine button"))
 
 Button("Keep Theirs") { detector.resolveConflict(.keepTheirs) }
     .accessibilityIdentifier("ConflictKeepTheirs")
-    .accessibilityLabel("Keep Their Version")
+    .accessibilityLabel(String(localized: "Keep Their Version",
+                               comment: "VoiceOver label for conflict sheet Keep Theirs button"))
 
 Button("Discard Mine", role: .destructive) { detector.resolveConflict(.discardMine) }
     .accessibilityIdentifier("ConflictDiscardMine")
-    .accessibilityLabel("Discard My Changes")
-    .accessibilityHint("Your local edits cannot be recovered after this action.")
+    .accessibilityLabel(String(localized: "Discard My Changes",
+                               comment: "VoiceOver label for conflict sheet Discard Mine button"))
+    .accessibilityHint(String(localized: "Your local edits cannot be recovered after this action.",
+                              comment: "VoiceOver hint for irreversible Discard Mine action"))
 ```
 
-Deletion banner buttons:
+In `deletionBanner`:
 
 ```swift
 Button("Save As") { showSaveAs = true }
     .accessibilityIdentifier("DeletionBannerSaveAs")
-    .accessibilityLabel("Save to New Location")
+    .accessibilityLabel(String(localized: "Save to New Location",
+                               comment: "VoiceOver label for deletion banner Save As button"))
 
 Button("Dismiss") { detector.dismissDeletionBanner() }
     .accessibilityIdentifier("DeletionBannerDismiss")
-    .accessibilityLabel("Dismiss")
+    .accessibilityLabel(String(localized: "Dismiss",
+                               comment: "VoiceOver label for deletion banner Dismiss button"))
 ```
 
-The label strings are plain Swift string literals here; they must be wrapped in
-`String(localized:)` or `NSLocalizedString(_:comment:)` in the actual
-implementation so they are localizable. (The pattern already exists in
-`DocumentView.copyContentsToClipboard()`.)
+### Contracts
 
-### Seam
+- No change to button action closures or `ChangeDetector` API.
+- No change to `DocumentView`'s overlay that instantiates `DetectorSurfaces`.
 
-`DetectorSurfaces` is a self-contained overlay; it receives `detector` and
-`document` by injection from `DocumentView`. No changes to `DocumentView` are
-needed for this concern.
+### Seam relationships
+
+- `DetectorSurfaces` is a self-contained overlay inserted in `DocumentView`. The relationship is unchanged.
+
+Reuses pattern: **UX checklist** — WCAG 4.1.2 (Name, Role, Value) requires interactive controls to have accessible names; Apple HIG confirms `.accessibilityLabel` is the correct mechanism on iOS.
 
 ---
 
-## Component 5 — DocumentView (mode-switch announcements)
-
-**File:** `Markus_v3/Views/DocumentView.swift`
+## Component 5 — DocumentView (`Markus_v3/Views/DocumentView.swift`)
 
 ### Behavioral constraints
 
-- BC-5.1: Every transition of the `mode` state from `.rendered` to `.raw` —
-  regardless of the triggering path (toolbar button, `onTap` callback,
-  `switchTo`, `switchToRawFromSwipe`) — posts exactly one
-  `UIAccessibility.post(notification: .announcement, argument: ...)` call with
-  a non-empty, localizable string describing raw/edit mode (e.g., "Editing mode").
-- BC-5.2: Every transition of the `mode` state from `.raw` to `.rendered` posts
-  exactly one announcement with a non-empty, localizable string describing
-  rendered/preview mode (e.g., "Preview mode").
-- BC-5.3: The initial `onAppear` assignment of `mode` (DC-4 rule) does NOT fire
-  an announcement. The guard is that the `didInitMode` flag is `false` at the
-  time of the first `mode` write; the `.onChange(of: mode)` observer therefore
-  must only post when `didInitMode` is already `true`.
-- BC-5.4: When VoiceOver is off, `UIAccessibility.post(notification: .announcement, ...)`
-  is a no-op. No error, no crash.
-- BC-5.5: Announcement strings pass through `NSLocalizedString` or
-  `String(localized:)` so they appear in `.strings` / `.xcstrings` files for
-  future localization. The English default values are "Editing mode" and
-  "Preview mode".
-- BC-5.6: All existing mode-switch side effects are undisturbed: scroll-anchor
-  seeding, `triggerSave()` calls, `focusRawOnFirstAppear`, and
-  `pendingRenderedAnchor` seeding happen in the same code paths as today.
+- **Every user-triggered mode transition posts exactly one announcement.** When `mode` transitions from `.rendered` to `.raw` (by any path: toolbar button, `onTap` callback, `switchTo`, `switchToRawFromSwipe`), `UIAccessibility.post(notification: .announcement, argument:)` is called with a non-empty localizable string describing raw/edit mode. When `mode` transitions from `.raw` to `.rendered` (toolbar button, `switchToRenderedFromSwipe`), an announcement for rendered/preview mode is posted.
+- **The initial mode assignment on `onAppear` does not post an announcement.** The `didInitMode` guard already in the codebase gates the DC-4 initial mode selection. The `.onChange(of: mode)` observer must only post when `didInitMode` is already `true`. Because `onAppear` writes `mode` before setting `didInitMode = true`, the batched SwiftUI `@State` update means the initial `onChange` fires while `didInitMode` is still `false`, so the guard is effective.
+- **Announcements are localizable.** Both strings pass through `String(localized:)` or `NSLocalizedString`. English defaults: "Editing mode" and "Preview mode".
+- **Announcement is a no-op when VoiceOver is off.** `UIAccessibility.post(notification: .announcement, ...)` is always unconditional; no guard on `UIAccessibility.isVoiceOverRunning` is needed.
+- **One announcement per transition, not per triggering path.** All mode-switch paths write to the same `mode` state property; a single `.onChange(of: mode)` covers all of them. No double announcement is possible.
+- **All existing side effects are preserved.** Scroll-anchor seeding, `triggerSave()` calls, and `focusRawOnFirstAppear` are untouched. The announcement is a new, parallel side effect only.
 
 ### Change
 
-Add a single `.onChange(of: mode)` modifier to `DocumentView.body`. The
-modifier fires once per mode value change and posts the appropriate announcement,
-guarded by `didInitMode`:
+Add a single `.onChange(of: mode)` modifier to `DocumentView.body`, placed after the existing `.onChange(of: scenePhase)` modifier for readability:
 
 ```swift
 .onChange(of: mode) { _, newMode in
@@ -302,71 +224,34 @@ guarded by `didInitMode`:
 }
 ```
 
-Placement: attach after the existing `.onChange(of: scenePhase)` modifier so
-the ordering of side-effect modifiers is consistent and easy to read.
+No changes are needed to `switchTo`, `switchToRawFromSwipe`, `switchToRenderedFromSwipe`, or any toolbar action. The single observer covers all paths.
 
-The guard `guard didInitMode else { return }` is safe because:
+### Contracts
 
-1. `onAppear` sets `mode` and then immediately sets `didInitMode = true` in the
-   same synchronous block. SwiftUI batches `@State` mutations; `.onChange`
-   observers fire after the render cycle, by which time `didInitMode` is `true`.
-   However, the `onAppear` block writes `mode` first and `didInitMode` second
-   in source order; to be certain the guard works, the ordering in `onAppear`
-   must be preserved (mode set → didInitMode set = true), which is already the
-   case in the current source.
-2. All subsequent mode changes (toolbar, tap, swipe) occur after `onAppear`
-   completes, so `didInitMode` is `true` and the announcement fires.
+- `mode: DocumentMode` — the existing `@State` property. Unchanged type and mutation sites; `onChange` observes without mutating.
+- `didInitMode: Bool` — the existing `@State` property. Read inside the `onChange` closure; never mutated by it.
 
-No changes are needed to `switchTo`, `switchToRawFromSwipe`, or
-`switchToRenderedFromSwipe`. The single `.onChange(of: mode)` observer covers
-all paths, satisfying AC-5.3 ("fires once per mode transition, not once per
-triggering path").
+### Seam relationships
 
-### Seam
+- `DocumentView` already calls `UIAccessibility.post(notification: .announcement, argument:)` in `copyContentsToClipboard()`. No new import is needed; the pattern is already established.
 
-`DocumentView` already uses `UIAccessibility.post` in
-`copyContentsToClipboard()`, establishing the pattern. No new import is needed.
+Reuses pattern: **UX checklist** — Nielsen heuristic 1 (Visibility of system status): VoiceOver users must receive feedback that the surface has changed after a mode switch.
 
 ---
 
-## Cross-cutting constraints (all components)
+## Cross-cutting constraints (from requirements)
 
-- All changes are additive; no `.accessibilityIdentifier` value is removed or
-  renamed (CC-1).
-- All existing unit and UI tests continue to pass. Where `simulateLinkTap`
-  previously asserted a mode switch, those tests must be updated to assert no
-  mode switch — this is a test-correction, not a regression (CC-2, AC-1.5).
-- Visual rendering is unchanged across all five changes (CC-3).
-- No new user-visible settings or opt-in mechanism; all improvements are always-on
-  (CC-4).
-
----
-
-## Patterns reused from constitution.md
-
-Reuses pattern: **Commits — conventional commits, one per logical unit of work.**
-Each of the five concerns is implemented and committed independently:
-`fix(accessibility): ...` per concern.
-
-Reuses pattern: **UX checklist — Apple HIG as the authoritative reference for
-platform decisions.** The `.isHeader` trait, `UIAccessibility.post` announcement,
-and `openURL` restoration all follow Apple HIG accessibility guidance directly.
+- CC-1: No `.accessibilityIdentifier` values are removed or renamed across all five changes. All five button identifiers are preserved exactly.
+- CC-2: Tests that asserted `simulateLinkTap(_:)` caused a mode switch must be updated to assert no mode switch occurs (AC-1.5). This is a test-correction, not a regression; it must be placed in the same DAG wave as the `RenderedView` change. All other existing tests are unaffected.
+- CC-3: No visual rendering changes in any of the five components.
+- CC-4: All accessibility improvements are always-on; no setting or user action is required to activate them.
 
 ---
 
 ## Requirements changes implied by this architecture
 
-One requirement warrants a note — not a change, but an implementation order
-dependency:
+No requirements text needs to change.
 
-**AC-1.5 / test update:** The requirement states that tests relying on the old
-`simulateLinkTap` → mode-switch behavior "must be updated to reflect the
-corrected semantics." This is a test file change, not a requirements change.
-The architecture flags it here so the DAG places the test update in the same
-wave as the `RenderedView` change, not after it.
-
-No requirements changes are otherwise needed.
-
----
+AC-1.5 correctly identifies the test update obligation that follows from restoring standard link behavior. The architecture flags this as a DAG sequencing constraint — the test update must land in the same wave as the `RenderedView` change — not as a requirements deficiency.
 
 Architecture stable — no requirements changes flagged
