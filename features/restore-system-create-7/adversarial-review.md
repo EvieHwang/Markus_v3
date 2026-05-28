@@ -12,7 +12,7 @@
   - Reframe AC-1.3 / DC-1 from "the method is not overridden" to a behavioral observable: "the new file lands in the folder currently shown by the browser, via the system's inline rename, with no Markus-supplied target directory or naming logic." The method is implemented, but minimally: provide a template URL (e.g. an empty `.md` in the app temp dir), call the completion handler, and let the system place + rename. No `CreateTargetResolver`-style directory choice; no `NameProbe`-style collision logic.
   - Update declaration Success #1 wording accordingly ("Markus does not choose the create location or name" rather than "Markus does not override the delegate method").
   - Confirm with a one-line build-time spike before locking the DAG: in the target iOS / Xcode version, verify that omitting the delegate vs. implementing it with a minimal template behaves as the spec expects. If iOS does provide a "no-template default" path for un-implemented delegates, the original spec stands; if it does not (the expected case), revise per above.
-- **Status:** open
+- **Status:** addressed
 
 ---
 

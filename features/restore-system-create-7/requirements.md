@@ -14,7 +14,7 @@
 
 - **AC-1.1** Tapping the system "+" affordance in the browser results in a new `.md` file appearing in the **folder currently shown by the browser**, and nowhere else. *(Traces: declaration Success #2.)*
 - **AC-1.2** The new file's parent directory is **not** computed from the last-opened file's location. If the user is browsing folder X while their last-opened file lives in folder Y, the new file is in X. *(Traces: declaration Why #2.)*
-- **AC-1.3** No code path in Markus calls `documentBrowser(_:didRequestDocumentCreationWithHandler:)` to override the system's location choice. *(Traces: declaration Success #1.)*
+- **AC-1.3** Markus does not compute the target directory, does not compute the file name, and does not withhold the on-disk write. Any implementation of `documentBrowser(_:didRequestDocumentCreationWithHandler:)` is template-only: it provides an empty `.md` template URL (e.g., in `NSTemporaryDirectory()`) and immediately completes the system handler, letting the system copy/place/rename in the browsed folder. No `CreateTargetResolver`-style directory selection and no `NameProbe`-style collision logic is present. *(Traces: declaration Success #1. Addresses adversarial F-001.)*
 
 ### US-2 — Naming uses the system's inline rename UI
 
@@ -113,6 +113,10 @@ No cross-cutting standards are silently absorbing weight into this feature.
 
 When `/architecture` runs, the open question to resolve is **where the content-driven initial-mode rule (AC-4.1, AC-4.2) lives**. It belongs in `DocumentView`'s existing initial-mode decision (the same `.onAppear` seam that handles the large-file case today). No new component is introduced. Surface any tension if design disagrees.
 
+## Revision notes
+
+- **2026-05-28 — Addresses adversarial F-001 (HIGH, integrity/feasibility).** AC-1.3 was reframed from a call-shape contract ("no code path calls `documentBrowser(_:didRequestDocumentCreationWithHandler:)` to override the system's location choice") to a behavioral one. The original framing rested on a mental model where omitting the delegate entirely yields the iOS-default create flow; in fact `UIDocumentBrowserViewController` requires the delegate to be implemented and to supply a template URL for "+" to function. The revised AC keeps the load-bearing observables (Markus does not choose the directory, the name, or defer the write) while permitting a minimal template-only implementation that hands off to the system. AC-1.1, AC-1.2, AC-2.*, AC-3.*, and AC-6.* were reviewed for ripple effects; all were already framed behaviorally (file lands in browsed folder; system rename UI; no custom naming UI; file exists on disk post-create; removed components are gone from tests) and required no edits. The feature declaration was updated in the same pass to soften Success #1 and the C4 removal bullet so they no longer assert "delegate fully un-implemented."
+
 ---
 
-Requirements stable — no architectural feedback to incorporate (no `design.md` or `adversarial-review.md` exists yet for this feature).
+Requirements stable — design.md exists and is consistent with the revised AC-1.3 after F-001's recommended reframing; the design's DC-1 will be updated by the architecture revision pass following this one.
