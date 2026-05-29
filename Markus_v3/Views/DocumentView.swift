@@ -77,7 +77,10 @@ struct DocumentView: View {
                 switch mode {
                 case .rendered:
                     RenderedView(
-                        text: document.text,
+                        // open-path-hardening-10 DC-3 — render-time BOM
+                        // suppression. Buffer keeps the BOM for byte-identical
+                        // save round-trip; only the display surface drops it.
+                        text: document.displayText,
                         onTap: { fractionalY in
                             pendingRawAnchor = ScrollAnchor(fractionalY: fractionalY ?? 0)
                             switchTo(.rendered, target: .raw)

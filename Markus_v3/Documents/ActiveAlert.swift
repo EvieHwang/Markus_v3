@@ -1,4 +1,4 @@
-enum ActiveAlert: Identifiable {
+enum ActiveAlert: Identifiable, Equatable {
     case saveFailed(DocumentError)
     case invalidEncoding
     case iCloudDownloadFailed
