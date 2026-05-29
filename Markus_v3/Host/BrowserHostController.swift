@@ -40,6 +40,26 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     private var currentPresentedNav: UINavigationController?
     private var edgeSwipeRecognizer: UIScreenEdgePanGestureRecognizer?
 
+    /// open-path-hardening-10 — current presented `MarkdownDocument`, if any.
+    /// Read-only seam for spec tests asserting DC-10's "prior document
+    /// survives a failed second pick." Set on successful open; cleared on
+    /// dismiss.
+    private(set) var activeDocument: MarkdownDocument?
+
+    /// open-path-hardening-10 — host-level open-path alert channel (DC-6a).
+    /// Written by the load pipeline on every failure terminal; observed by
+    /// spec tests and (in production) drives a UIAlertController presented
+    /// from `self`. The DocumentView retains its own `activeAlert` for
+    /// running-document surfaces — these channels are independent (DC-10).
+    var openPathAlert: ActiveAlert? {
+        didSet {
+            guard openPathAlert != oldValue else { return }
+            if openPathAlert != nil {
+                presentOpenPathAlertIfPossible()
+            }
+        }
+    }
+
     /// Resume-reference store, reused by the follow-on-move retarget (DC-19/BR-8.5).
     private let lastFileStore = LastFileStore()
 
@@ -73,10 +93,28 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     /// Asks the host to present the file at `url` in the editor. Used by
     /// the browser pick/import callbacks and the resume branch. Reuses the
     /// unchanged `DocumentView` as the editor surface.
+    ///
+    /// open-path-hardening-10 — every failure terminal sets `openPathAlert`
+    /// and releases the security-scoped resource it acquired (DC-1, DC-9);
+    /// `activeDocument` is only mutated on success, so a failed pick after
+    /// an opened document does not tear down the prior document (DC-10).
     @MainActor
     func presentDocument(at url: URL, animated: Bool = true) {
-        guard let document = Self.loadMarkdownDocument(at: url) else { return }
+        let loadResult = Self.loadMarkdownDocument(at: url)
+        switch loadResult {
+        case .alert(let alert):
+            openPathAlert = alert
+            return
+        case .document(let document):
+            activeDocument = document
+            installEditorSession(for: document, at: url, animated: animated)
+        }
+    }
 
+    @MainActor
+    private func installEditorSession(for document: MarkdownDocument,
+                                      at url: URL,
+                                      animated: Bool) {
         let settleEnabled = !ProcessInfo.processInfo.arguments.contains("-uitest-suppress-settle")
         let detector = ChangeDetector(document: document, url: url, settleEnabled: settleEnabled)
         self.currentDetector = detector
@@ -156,7 +194,37 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         currentSaveFailedRouter = nil
         currentPresentedNav = nil
         edgeSwipeRecognizer = nil
+        activeDocument = nil
         dismiss(animated: true)
+    }
+
+    @MainActor
+    private func presentOpenPathAlertIfPossible() {
+        guard let alert = openPathAlert else { return }
+        // Don't stack an alert on top of an existing modal presentation.
+        // The presented document (or the conflict sheet) owns the screen
+        // when present; the alert state remains for tests to observe and
+        // the next browser-idle entry will present it.
+        if presentedViewController != nil { return }
+        let controller = UIAlertController(
+            title: openPathAlertTitle(for: alert),
+            message: OpenPathAlertCopy.message(for: alert),
+            preferredStyle: .alert
+        )
+        controller.addAction(UIAlertAction(title: "Dismiss", style: .cancel) { [weak self] _ in
+            self?.openPathAlert = nil
+        })
+        present(controller, animated: true)
+    }
+
+    private func openPathAlertTitle(for alert: ActiveAlert) -> String {
+        switch alert {
+        case .invalidEncoding, .permissionDenied, .fileMovedOrRemoved,
+             .couldNotReadFile, .tooLarge:
+            return "Couldn't open"
+        case .saveFailed, .iCloudDownloadFailed:
+            return ""
+        }
     }
 
     @MainActor
@@ -179,15 +247,49 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         currentSaveBridge?.saveSynchronously()
     }
 
+    /// open-path-hardening-10 — four-stage gated open pipeline (DC-1, DC-4).
+    /// Returns either a `.document(...)` for the caller to present, or an
+    /// `.alert(...)` the caller must route to `openPathAlert` and surface
+    /// before yielding control (BR-3.1, BR-3.5).
     @MainActor
-    static func loadMarkdownDocument(at url: URL) -> MarkdownDocument? {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    static func loadMarkdownDocument(at url: URL) -> OpenPathLoadResult {
+        // Stage 1 — scope acquire.
+        let scoped = OpenPathScopeAudit.startAccessing(url)
+        defer { OpenPathScopeAudit.stopAccessing(url, didAcquire: scoped) }
+
+        // Stage 2 — size pre-check (attribute only; BR-4.2 pre-read gate).
+        let attrs: [FileAttributeKey: Any]
         do {
-            let wrapper = try FileWrapper(url: url, options: [])
-            return try MarkdownDocument(file: wrapper, contentType: .plainText)
+            attrs = try FileManager.default.attributesOfItem(atPath: url.path)
         } catch {
-            return nil
+            return OpenPathLoadPipeline.failureResult(for: error)
+        }
+
+        // BR-14 — directory / non-regular URL never reaches the read stage.
+        if let fileType = attrs[.type] as? FileAttributeType,
+           fileType != .typeRegular && fileType != .typeSymbolicLink {
+            return .alert(.couldNotReadFile)
+        }
+        let byteSize = (attrs[.size] as? NSNumber)?.intValue ?? 0
+        guard OpenPathSizeCeiling.admits(byteSize: byteSize) else {
+            return .alert(.tooLarge)
+        }
+
+        // Stage 3 — coordinated read.
+        let bytes: Data
+        do {
+            bytes = try Data(contentsOf: url)
+        } catch {
+            return OpenPathLoadPipeline.failureResult(for: error)
+        }
+
+        // Stage 4 — strict UTF-8 decode (BOM-retaining; DC-2, DC-3).
+        do {
+            let wrapper = FileWrapper(regularFileWithContents: bytes)
+            let document = try MarkdownDocument(file: wrapper, contentType: .plainText)
+            return .document(document)
+        } catch {
+            return OpenPathLoadPipeline.failureResult(for: error)
         }
     }
 }
