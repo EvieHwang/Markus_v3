@@ -36,6 +36,15 @@ final class MarkdownDocumentSaveBridge {
     /// detector can reset last-known-disk and open the settle window (DC-6).
     var onDidWrite: ((String) -> Void)?
 
+    /// DC-1 (save-bridge-hardening-9) — paired with `onDidWrite`: invoked when a
+    /// write attempt throws (atomic write or, in T-003, coordinator acquisition).
+    /// The host routes this to `ActiveAlert.saveFailed`. Failure here does NOT
+    /// fire the success-only side effects (DC-2): `lastKnownDiskContent` is not
+    /// advanced and the settle window is not opened, so the buffer remains dirty
+    /// against last-known-disk and a subsequent successful write clears it via
+    /// the normal success path (DC-3 / BR-1.4–1.6).
+    var onDidFailWrite: ((Error) -> Void)?
+
     init(document: MarkdownDocument, url: URL) {
         self.document = document
         self.url = url
@@ -74,22 +83,60 @@ final class MarkdownDocumentSaveBridge {
     }
 
     private func writeNow() {
-        // DC-22 — re-check at the write edge: a collision may have been classified
-        // after this save was scheduled (the classify→present gap).
+        // DC-4 (save-bridge-hardening-9) / DC-22 (external-change-5) — gate FIRST,
+        // BEFORE entering the coordinator. A classified collision/deletion
+        // suspends save-back; a gated-out attempt pays no coordination cost and
+        // is neither a success nor a failure on the outcome bus (NR-4). The gate
+        // is re-checked here at the write edge because a collision may have been
+        // classified after this save was scheduled (the classify→present gap).
         guard allowsSaveBack() else { return }
+
         let textToWrite = document.text
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        do {
-            try Data(textToWrite.utf8).write(to: url, options: [.atomic])
-        } catch {
-            // Save failed. Wave 3 swallows; a follow-up will route this into
-            // SaveStatusObserver / the alert path that DocumentView already
-            // surfaces. Recorded in features/resume-and-create-2/build-deviations.md.
+        var writeError: Error?
+        var coordError: NSError?
+
+        // DC-5 — every write attempt (debounced and immediate-flush) runs inside
+        // the coordinator so the bridge serializes with the rest of the
+        // coordinated file world (iCloud, other presenters, our own detector).
+        // Mirrors the coordinated-read pattern in
+        // ChangeDetector.coordinatedReadData.
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(writingItemAt: url, options: [], error: &coordError) { writeURL in
+            // DC-8 — security-scoped access is balanced across BOTH the success
+            // and failure paths (defer runs even if the atomic write throws), so
+            // repeated failing writes do not leak scoped accesses.
+            let scoped = writeURL.startAccessingSecurityScopedResource()
+            defer { if scoped { writeURL.stopAccessingSecurityScopedResource() } }
+            do {
+                // DC-7 — atomic-write semantics inside the coordinated block:
+                // disk is either pre-write or post-write, never partial. A throw
+                // here is a clean failure surfaced via the outcome bus.
+                try Data(textToWrite.utf8).write(to: writeURL, options: [.atomic])
+            } catch {
+                writeError = error
+            }
+        }
+
+        // DC-6 — coordinated-or-fail: a coordinator-acquisition error (timeout,
+        // contention, presenter veto) resolves as failure on the outcome bus;
+        // there is NO uncoordinated best-effort fallback.
+        if let coordError {
+            onDidFailWrite?(coordError)
             return
         }
-        // DC-9 — a successful write is now the last-known-disk content, and a
-        // settle trigger (DC-6) so the sync echo of our own write is suppressed.
+        if let writeError {
+            // DC-1 / DC-2 — atomic-write throw inside the coordinated block;
+            // success-only side effects do not fire (lastKnownDiskContent is not
+            // advanced; settle window does not open). Buffer remains dirty
+            // against last-known-disk; a subsequent successful write clears it
+            // via the normal success path (DC-3 / BR-1.6).
+            onDidFailWrite?(writeError)
+            return
+        }
+        // DC-9 — a successful coordinated write is observationally
+        // indistinguishable from the pre-hardening atomic write on the steady-
+        // state path: settle window opens and last-known-disk refreshes via
+        // onDidWrite. Coordination's cost is only paid under actual contention.
         onDidWrite?(textToWrite)
     }
 }

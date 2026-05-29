@@ -311,13 +311,27 @@ final class ChangeDetector: ObservableObject {
         )
         switch decision {
         case .rePresent:
+            // DC-19 (save-bridge-hardening-9) / NR-6: never refresh
+            // lastKnownDiskContent on re-present — silently agreeing with disk
+            // would defeat the user's pending three-option choice (BR-3.6).
             activeSurface = absent ? .deletion : .conflict(diskContent: disk ?? "")
         case .lift:
+            // DC-16 / BR-3.1 (save-bridge-hardening-9): refresh
+            // lastKnownDiskContent to the settled bytes that justified the lift
+            // BEFORE lifting suspension. Order matters: if suspension lifts
+            // first, a debounced save could fire against a stale reference and
+            // overwrite a fresher-but-equal disk state the user never observed.
+            // DC-18 / BR-3.4: never mutate document.text — only the
+            // lastKnownDiskContent reference changes; cursor/scroll are
+            // preserved. DC-20 / BR-10: if the coordinated read returned nil
+            // (read failed) we do not synthesize a refresh against a stale
+            // reference; existing reconciler logic already guarded the lift
+            // decision itself.
+            if let disk, !absent {
+                document.lastKnownDiskContent = disk
+            }
             latch.resolveByUser()
             activeSurface = nil
-            if let disk, !absent {
-                document.lastKnownDiskContent = disk   // disk now agrees; resume normally
-            }
         }
     }
 

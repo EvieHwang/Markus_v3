@@ -6,6 +6,10 @@ struct DocumentView: View {
     let fileURL: URL?
     let detector: ChangeDetector?
     let onBack: (() -> Void)?
+    /// T-004 (save-bridge-hardening-9) — per-document router that surfaces
+    /// bridge write failures into `activeAlert` with the DC-10–DC-15 lifecycle
+    /// (single-alert coalescing, background latch, conflict precedence).
+    let saveFailedRouter: SaveFailedAlertRouter?
 
     @State private var mode: DocumentMode = .rendered
     @State private var didInitMode = false
@@ -31,11 +35,13 @@ struct DocumentView: View {
     init(document: MarkdownDocument,
          fileURL: URL? = nil,
          detector: ChangeDetector? = nil,
-         onBack: (() -> Void)? = nil) {
+         onBack: (() -> Void)? = nil,
+         saveFailedRouter: SaveFailedAlertRouter? = nil) {
         self.document = document
         self.fileURL = fileURL
         self.detector = detector
         self.onBack = onBack
+        self.saveFailedRouter = saveFailedRouter
         let doc = document
         self._coordinator = State(wrappedValue: AutosaveCoordinator(onIdle: { [weak doc] in
             doc?.markDirty()
@@ -134,21 +140,49 @@ struct DocumentView: View {
             }
             document.undoManager = undoManager
             startDetectorIfNeeded()
+            // DC-13 (save-bridge-hardening-9) — view is alive; promote any
+            // failure latched while no view was visible.
+            saveFailedRouter?.viewBecameActive()
+            // DC-14 — initialize conflict precedence from the current detector
+            // surface so a save-failed observed during onAppear does not
+            // pre-empt a conflict sheet already on screen.
+            saveFailedRouter?.setConflictPresented(detector?.activeSurface != nil)
         }
         .onDisappear {
             detector?.stop()
+            saveFailedRouter?.viewBecameInactive()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
                 triggerSave()
+                saveFailedRouter?.viewBecameInactive()
             } else if newPhase == .active {
                 // DC-23 — recover a latched-but-surface-less outcome on return.
                 detector?.reconcileOnForeground()
+                // DC-13 — promote any failure latched while backgrounded.
+                saveFailedRouter?.viewBecameActive()
             }
         }
         .onChange(of: saveStatusObserver.lastSaveError) { _, err in
             if let err {
+                // DC-15 / NR-7 — single-alert state model absorbs the duplicate
+                // if the bridge route already surfaced an alert for the same
+                // underlying failure (both producers funnel into activeAlert).
                 activeAlert = .saveFailed(err)
+            }
+        }
+        .onChange(of: detector?.activeSurface) { _, surface in
+            // DC-14 — keep the router informed so a presented conflict sheet
+            // or deletion banner outranks any incoming save-failed alert.
+            saveFailedRouter?.setConflictPresented(surface != nil)
+        }
+        .onChange(of: saveFailedRouter?.pendingError as NSError?) { _, _ in
+            if let err = saveFailedRouter?.pendingError {
+                // DC-10 — route bridge failures into the existing alert path.
+                activeAlert = .saveFailed(.saveFailed(underlying: err))
+            } else if case .saveFailed = activeAlert {
+                // Router cleared (success / dismissed) — clear our reflection too.
+                activeAlert = nil
             }
         }
     }
@@ -310,8 +344,17 @@ struct DocumentView: View {
 
     private func alertMessage(for alert: ActiveAlert) -> String {
         switch alert {
-        case .saveFailed:
-            return "Your edits are still in memory. You can copy them to the clipboard."
+        case let .saveFailed(error):
+            // BR-1.2 (save-bridge-hardening-9) — include the underlying error's
+            // localized description so the user has something actionable to
+            // recognize (e.g. file path, permission text). Falls back to the
+            // generic line alone if the underlying error provides no message.
+            let base = "Your edits are still in memory. You can copy them to the clipboard."
+            let underlying = underlyingDescription(for: error)
+            if let underlying, !underlying.isEmpty {
+                return "\(underlying)\n\n\(base)"
+            }
+            return base
         case .invalidEncoding:
             return "This file isn't valid UTF-8 text."
         case .iCloudDownloadFailed:
@@ -319,12 +362,31 @@ struct DocumentView: View {
         }
     }
 
+    private func underlyingDescription(for error: DocumentError) -> String? {
+        if case let .saveFailed(underlying) = error {
+            let description = (underlying as NSError).localizedDescription
+            // SaveStatusObserver synthesizes an empty NSError on UIDocument
+            // save errors; suppress its placeholder so the generic line is
+            // shown unchanged.
+            if description.isEmpty || description == "The operation couldn’t be completed. (UIDocument.savingError error 0.)" {
+                return nil
+            }
+            return description
+        }
+        return nil
+    }
+
     @ViewBuilder
     private func alertActions(for alert: ActiveAlert) -> some View {
         switch alert {
         case .saveFailed:
             Button("Copy contents to clipboard") { copyContentsToClipboard() }
-            Button("Dismiss", role: .cancel) { activeAlert = nil }
+            Button("Dismiss", role: .cancel) {
+                activeAlert = nil
+                // BR-1.3 / DC-10 — close the surface; router clears its
+                // pending state but does NOT retry, queue, or clear dirty.
+                saveFailedRouter?.dismiss()
+            }
         case .invalidEncoding, .iCloudDownloadFailed:
             Button("OK", role: .cancel) { activeAlert = nil }
         }
@@ -412,5 +474,8 @@ struct DocumentView: View {
         )
         toast = "Copied"
         activeAlert = nil
+        // BR-1.3 / DC-10 — copying is an alternative dismissal path; the
+        // router clears its pending state but does NOT retry or clear dirty.
+        saveFailedRouter?.dismiss()
     }
 }
