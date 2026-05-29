@@ -105,13 +105,16 @@ final class ChangeDetector: ObservableObject {
 
         let shim = FilePresenterShim(url: displayURL)
         shim.onChange = { [weak self] in
-            Task { @MainActor in self?.handleDidChange() }
+            guard let self else { return }
+            Task { @MainActor [self] in self.handleDidChange() }
         }
         shim.onMove = { [weak self] newURL in
-            Task { @MainActor in self?.handleDidMove(to: newURL) }
+            guard let self else { return }
+            Task { @MainActor [self] in self.handleDidMove(to: newURL) }
         }
         shim.onDelete = { [weak self] in
-            Task { @MainActor in self?.handleDidDelete() }
+            guard let self else { return }
+            Task { @MainActor [self] in self.handleDidDelete() }
         }
         presenter = shim
         shim.register()
@@ -260,9 +263,9 @@ final class ChangeDetector: ObservableObject {
         // Re-register the presenter at the new location.
         presenter?.unregister()
         let shim = FilePresenterShim(url: newURL)
-        shim.onChange = { [weak self] in Task { @MainActor in self?.handleDidChange() } }
-        shim.onMove = { [weak self] u in Task { @MainActor in self?.handleDidMove(to: u) } }
-        shim.onDelete = { [weak self] in Task { @MainActor in self?.handleDidDelete() } }
+        shim.onChange = { [weak self] in guard let self else { return }; Task { @MainActor [self] in self.handleDidChange() } }
+        shim.onMove = { [weak self] u in guard let self else { return }; Task { @MainActor [self] in self.handleDidMove(to: u) } }
+        shim.onDelete = { [weak self] in guard let self else { return }; Task { @MainActor [self] in self.handleDidDelete() } }
         presenter = shim
         shim.register()
     }

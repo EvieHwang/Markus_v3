@@ -16,8 +16,11 @@ final class SaveStatusObserver {
             object: nil,
             queue: nil
         ) { [weak self] notification in
-            Task { @MainActor in
-                self?.handle(notification: notification)
+            guard let doc = notification.object as? UIDocument else { return }
+            let state = doc.documentState
+            guard let self else { return }
+            Task { @MainActor [self] in
+                self.handle(state: state)
             }
         }
     }
@@ -28,9 +31,7 @@ final class SaveStatusObserver {
         }
     }
 
-    private func handle(notification: Notification) {
-        guard let doc = notification.object as? UIDocument else { return }
-        let state = doc.documentState
+    private func handle(state: UIDocument.State) {
         if state.contains(.savingError) {
             lastSaveError = .saveFailed(underlying: NSError(
                 domain: "UIDocument.savingError",
