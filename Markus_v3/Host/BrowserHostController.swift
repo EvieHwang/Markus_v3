@@ -36,6 +36,7 @@ final class BrowserHostController: UIDocumentBrowserViewController {
 
     private var currentSaveBridge: MarkdownDocumentSaveBridge?
     private var currentDetector: ChangeDetector?
+    private var currentSaveFailedRouter: SaveFailedAlertRouter?
     private var currentPresentedNav: UINavigationController?
     private var edgeSwipeRecognizer: UIScreenEdgePanGestureRecognizer?
 
@@ -80,15 +81,22 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         let detector = ChangeDetector(document: document, url: url, settleEnabled: settleEnabled)
         self.currentDetector = detector
 
-        let bridge = makeSaveBridge(document: document, url: url, detector: detector)
+        // T-004 (save-bridge-hardening-9) — per-document router that routes
+        // bridge failures to ActiveAlert.saveFailed with single-alert lifecycle,
+        // background-latch (DC-13), and conflict-sheet precedence (DC-14). Lives
+        // for the editor session; torn down when the document is dismissed.
+        let router = SaveFailedAlertRouter()
+        self.currentSaveFailedRouter = router
+
+        let bridge = makeSaveBridge(document: document, url: url, detector: detector, router: router)
         self.currentSaveBridge = bridge
 
         detector.requestImmediateWrite = { [weak self] in
             self?.currentSaveBridge?.saveSynchronously()
         }
-        detector.onRetarget = { [weak self, weak detector] newURL in
+        detector.onRetarget = { [weak self, weak detector, weak router] newURL in
             guard let self, let detector else { return }
-            let newBridge = self.makeSaveBridge(document: document, url: newURL, detector: detector)
+            let newBridge = self.makeSaveBridge(document: document, url: newURL, detector: detector, router: router)
             self.currentSaveBridge = newBridge
             self.lastFileStore.recordLastOpened(newURL)
         }
@@ -101,7 +109,8 @@ final class BrowserHostController: UIDocumentBrowserViewController {
             document: document,
             fileURL: url,
             detector: detector,
-            onBack: onBack
+            onBack: onBack,
+            saveFailedRouter: router
         )
         let host = UIHostingController(rootView: editor)
         let nav = UINavigationController(rootViewController: host)
@@ -118,11 +127,22 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     @MainActor
     private func makeSaveBridge(document: MarkdownDocument,
                                 url: URL,
-                                detector: ChangeDetector) -> MarkdownDocumentSaveBridge {
+                                detector: ChangeDetector,
+                                router: SaveFailedAlertRouter?) -> MarkdownDocumentSaveBridge {
         let bridge = MarkdownDocumentSaveBridge(document: document, url: url)
         bridge.allowsSaveBack = { [weak detector] in detector?.allowsSaveBack ?? true }
-        bridge.onDidWrite = { [weak detector] written in
+        bridge.onDidWrite = { [weak detector, weak router] written in
             detector?.noteSaveCompleted(writtenContent: written)
+            // DC-12 / BR-6 — a successful write clears any latched/pending
+            // save-failed alert via the router.
+            router?.recordSuccess()
+        }
+        // DC-1 / DC-10 — every classified failure (atomic-write throw or
+        // coordinator-acquisition error) is routed through the router into
+        // the existing ActiveAlert.saveFailed surface in DocumentView, with
+        // the DC-11/DC-13/DC-14/DC-15 lifecycle.
+        bridge.onDidFailWrite = { [weak router] error in
+            router?.recordFailure(error)
         }
         return bridge
     }
@@ -133,6 +153,7 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         currentDetector?.stop()
         currentDetector = nil
         currentSaveBridge = nil
+        currentSaveFailedRouter = nil
         currentPresentedNav = nil
         edgeSwipeRecognizer = nil
         dismiss(animated: true)
