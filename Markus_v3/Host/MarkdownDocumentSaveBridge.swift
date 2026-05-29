@@ -36,6 +36,15 @@ final class MarkdownDocumentSaveBridge {
     /// detector can reset last-known-disk and open the settle window (DC-6).
     var onDidWrite: ((String) -> Void)?
 
+    /// DC-1 (save-bridge-hardening-9) — paired with `onDidWrite`: invoked when a
+    /// write attempt throws (atomic write or, in T-003, coordinator acquisition).
+    /// The host routes this to `ActiveAlert.saveFailed`. Failure here does NOT
+    /// fire the success-only side effects (DC-2): `lastKnownDiskContent` is not
+    /// advanced and the settle window is not opened, so the buffer remains dirty
+    /// against last-known-disk and a subsequent successful write clears it via
+    /// the normal success path (DC-3 / BR-1.4–1.6).
+    var onDidFailWrite: ((Error) -> Void)?
+
     init(document: MarkdownDocument, url: URL) {
         self.document = document
         self.url = url
@@ -83,9 +92,13 @@ final class MarkdownDocumentSaveBridge {
         do {
             try Data(textToWrite.utf8).write(to: url, options: [.atomic])
         } catch {
-            // Save failed. Wave 3 swallows; a follow-up will route this into
-            // SaveStatusObserver / the alert path that DocumentView already
-            // surfaces. Recorded in features/resume-and-create-2/build-deviations.md.
+            // DC-1 (save-bridge-hardening-9) — surface as a classified outcome
+            // rather than silently swallowing. DC-2: success-only side effects
+            // (lastKnownDiskContent refresh + settle-window open via onDidWrite)
+            // do NOT fire on the failure path, so the buffer remains dirty
+            // against last-known-disk (DC-3 / BR-1.4) and a subsequent successful
+            // write clears it via the normal success path (BR-1.6).
+            onDidFailWrite?(error)
             return
         }
         // DC-9 — a successful write is now the last-known-disk content, and a
