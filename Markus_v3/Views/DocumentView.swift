@@ -77,7 +77,10 @@ struct DocumentView: View {
                 switch mode {
                 case .rendered:
                     RenderedView(
-                        text: document.text,
+                        // open-path-hardening-10 DC-3 — render-time BOM
+                        // suppression. Buffer keeps the BOM for byte-identical
+                        // save round-trip; only the display surface drops it.
+                        text: document.displayText,
                         onTap: { fractionalY in
                             pendingRawAnchor = ScrollAnchor(fractionalY: fractionalY ?? 0)
                             switchTo(.rendered, target: .raw)
@@ -338,6 +341,14 @@ struct DocumentView: View {
         case .saveFailed:           return "Couldn't save"
         case .invalidEncoding:      return "Couldn't open"
         case .iCloudDownloadFailed: return "Couldn't download"
+        // open-path-hardening-10 — these surfaces normally fire on
+        // BrowserHostController (DC-6a) before a DocumentView exists, but
+        // ActiveAlert is a single enum and Swift requires exhaustive
+        // switching. Titles are sensible defaults in case of routing drift.
+        case .permissionDenied:     return "Couldn't open"
+        case .fileMovedOrRemoved:   return "Couldn't open"
+        case .couldNotReadFile:     return "Couldn't open"
+        case .tooLarge:             return "Couldn't open"
         case .none:                 return ""
         }
     }
@@ -359,6 +370,10 @@ struct DocumentView: View {
             return "This file isn't valid UTF-8 text."
         case .iCloudDownloadFailed:
             return "The file couldn't be downloaded from iCloud."
+        case .permissionDenied, .fileMovedOrRemoved, .couldNotReadFile, .tooLarge:
+            // Open-path surfaces normally fire on BrowserHostController
+            // (DC-6a); included here for exhaustiveness with shared copy.
+            return OpenPathAlertCopy.message(for: alert)
         }
     }
 
@@ -387,7 +402,9 @@ struct DocumentView: View {
                 // pending state but does NOT retry, queue, or clear dirty.
                 saveFailedRouter?.dismiss()
             }
-        case .invalidEncoding, .iCloudDownloadFailed:
+        case .invalidEncoding, .iCloudDownloadFailed,
+             .permissionDenied, .fileMovedOrRemoved,
+             .couldNotReadFile, .tooLarge:
             Button("OK", role: .cancel) { activeAlert = nil }
         }
     }

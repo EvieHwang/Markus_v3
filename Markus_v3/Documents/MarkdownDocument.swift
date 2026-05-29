@@ -35,6 +35,15 @@ final class MarkdownDocument: ReferenceFileDocument {
         ContentEqualityGate.equal(text, lastKnownDiskContent)
     }
 
+    /// open-path-hardening-10 DC-3 — renderer-facing form of the buffer with the
+    /// leading UTF-8 BOM (U+FEFF) suppressed. The buffer (`text`) retains the BOM
+    /// so a no-edit save round-trips the original bytes; only the display surfaces
+    /// drop it so users never see a stray zero-width character or replacement glyph.
+    var displayText: String {
+        guard text.unicodeScalars.first == "\u{FEFF}" else { return text }
+        return String(text.unicodeScalars.dropFirst())
+    }
+
     init() {
         self.text = ""
         self.initialByteSize = 0
@@ -43,12 +52,19 @@ final class MarkdownDocument: ReferenceFileDocument {
 
     init(file: FileWrapper, contentType: UTType) throws {
         let bytes = file.regularFileContents ?? Data()
-        guard let decoded = String(data: bytes, encoding: .utf8) else {
+        // open-path-hardening-10 DC-3 — Apple Foundation's
+        // `String(data:encoding:.utf8)` silently strips a leading UTF-8 BOM.
+        // To preserve byte-identical save round-trip (BR-1.3) we strip the
+        // BOM bytes ourselves, decode, then re-prepend U+FEFF to the buffer.
+        let hadBOM = bytes.starts(with: [0xEF, 0xBB, 0xBF])
+        let bytesForDecode = hadBOM ? bytes.dropFirst(3) : bytes.subdata(in: 0..<bytes.count)
+        guard let decoded = String(data: bytesForDecode, encoding: .utf8) else {
             throw DocumentError.invalidEncoding
         }
-        self.text = decoded
+        let buffer = hadBOM ? "\u{FEFF}" + decoded : decoded
+        self.text = buffer
         self.initialByteSize = bytes.count
-        self.lastKnownDiskContent = decoded
+        self.lastKnownDiskContent = buffer
     }
 
     convenience init(configuration: ReadConfiguration) throws {
