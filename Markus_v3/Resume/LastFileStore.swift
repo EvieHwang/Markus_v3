@@ -62,7 +62,14 @@ nonisolated final class LastFileStore {
     }
 
     /// Resolves the stored bookmark to a reachable URL, or returns `nil` on any failure.
-    /// Never clears the stored reference (RETAIN-on-failure, DC-5).
+    /// Never clears the stored reference (RETAIN-on-failure, DC-5/DC-6).
+    ///
+    /// resume-and-detector-hardening-11 DC-1/DC-3: the bookmark is the identity of
+    /// the last-opened file; the recorded path is a reachability hint. When the
+    /// recorded path is missing on disk, probe the bookmark-resolved URL under
+    /// security scope and resume there if reachable. The recorded path is never
+    /// rewritten from inside the resolver (DC-4) — `recordLastOpened(_:)` remains
+    /// the sole persistence funnel.
     func resolveLastOpened() -> URL? {
         guard let data = defaults.data(forKey: bookmarkKey) else { return nil }
 
@@ -79,18 +86,24 @@ nonisolated final class LastFileStore {
             return nil
         }
 
-        // RETAIN-on-failure unreachability check: anchor "reachable" to the path
-        // the user originally opened. If the file no longer exists at that path
-        // (moved aside, deleted, placeholder swapped out), report unreachable —
-        // but DO NOT clear the stored bookmark, so a later launch can recover.
-        if let recordedPath = defaults.string(forKey: pathKey),
-           !FileManager.default.fileExists(atPath: recordedPath) {
-            return nil
+        let recordedPath = defaults.string(forKey: pathKey)
+
+        // Bookmark-fallback (DC-3): the recorded path moved/vanished since
+        // record-time. Don't abandon the bookmark — probe the bookmark-resolved
+        // URL under security scope and resume there if reachable. On probe
+        // failure, return nil but retain the stored reference (DC-6) so a
+        // later launch can recover (e.g. iCloud placeholder finishes
+        // downloading, permission re-granted).
+        if let recordedPath, !FileManager.default.fileExists(atPath: recordedPath) {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return url
         }
 
         // Fallback: if no recorded path is present (older record), at least
         // verify the bookmark-resolved URL is reachable.
-        if defaults.string(forKey: pathKey) == nil {
+        if recordedPath == nil {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
