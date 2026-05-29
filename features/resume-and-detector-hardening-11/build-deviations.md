@@ -39,3 +39,45 @@ generator, not in product code. A future `/tests` invocation for this or
 a similar feature should use the existing
 `MarkdownDocument(file:contentType:)` constructor in spec tests so the
 spec and the mirror match byte-for-byte. No product-code change required.
+
+## D-002 — `LastFileStoreTests.retainOnFailure` inherited assertion contradicted by BR-2
+
+**Source affected:** `Markus_v3Tests/LastFileStoreTests.swift`
+**DAG tasks:** T-001
+
+**What the inherited test asserted.** The Wave-1 test
+`LastFileStoreTests.retainOnFailure` (from `resume-and-create-2`) moved
+the recorded file to a sibling location in the same directory and
+expected `resolveLastOpened() == nil` while the file was "unreachable",
+then expected recovery once it was moved back.
+
+**Why this is wrong under this feature.** Requirement BR-1 (and BR-2,
+plus design DC-1 / DC-3) of `resume-and-detector-hardening-11`
+explicitly inverts the old behavior: the bookmark is the identity of
+the file, and a file moved in place within the same security scope
+**must** now resolve via the bookmark fallback rather than return nil.
+The recorded-path-string vetoed resolves under the old design (DC-4 of
+resume-and-create-2) — that veto is exactly what this feature removes.
+
+**What was done instead.** The test is renamed-in-spirit but kept
+under the same name to preserve the inherited test surface. Its body
+is updated to exercise a scenario that genuinely produces nil under
+the new contract: the file is **deleted entirely** (rather than moved
+sideways), so the bookmark-fallback probe in `resolveLastOpened()`
+also fails (DC-3 failure case), and the resolver returns nil.
+RETAIN-on-failure is asserted via both branches: `hasRecord == true`
+after the failed resolve, and resolution recovers once the file is
+recreated.
+
+**Impact on requirement coverage.** None. The RETAIN-on-failure
+contract (DC-6 of this feature, inherited from resume-and-create-2
+DC-5) is still exercised end-to-end — only the failure-producing
+scenario changed from "moved" to "deleted." The "moved file resolves"
+positive case is independently covered by the new
+`ResumeDetectorHardening11_T001Tests.movedFileResolvesViaBookmark`
+test (BR-1 / BR-2 / DC-1 / DC-3).
+
+**Disposition for the req↔arch loop.** No further work required. The
+old test was pinning the precise behavior this feature is designed to
+flip; updating it is the expected outcome of landing the feature, and
+the build-deviation record is the audit trail.
