@@ -92,6 +92,17 @@ final class ChangeDetector: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
+        // resume-and-detector-hardening-11 DC-7/DC-8: perform an initial
+        // coordinated read of displayURL and seed lastKnownDiskContent BEFORE
+        // registering the presenter, so no handler body can ever observe
+        // placeholder initial state. On read failure (file missing, coordination
+        // error, invalid UTF-8), leave the host-seeded prior in place — start()
+        // does not throw or raise activeSurface; the next live callback
+        // re-evaluates against whatever the host seeded.
+        if let initial = coordinatedRead(displayURL) {
+            document.lastKnownDiskContent = initial
+        }
+
         let shim = FilePresenterShim(url: displayURL)
         shim.onChange = { [weak self] in
             Task { @MainActor in self?.handleDidChange() }

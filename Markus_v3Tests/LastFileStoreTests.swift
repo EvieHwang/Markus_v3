@@ -111,14 +111,21 @@ struct LastFileStoreTests {
 
         store.recordLastOpened(file)
 
-        let stashed = dir.appendingPathComponent("stashed.md")
-        try FileManager.default.moveItem(at: file, to: stashed)
-        #expect(store.resolveLastOpened() == nil, "While unreachable, resolution returns nil (DC-4)")
+        // resume-and-detector-hardening-11 BR-1/BR-2/DC-1/DC-3: moving the file
+        // in place no longer produces nil — the bookmark-fallback branch
+        // resolves through to the new location. To exercise RETAIN-on-failure
+        // we need a scenario that genuinely produces nil; deleting the file
+        // entirely does that (DC-4: bookmark-resolved URL also unreachable).
+        try FileManager.default.removeItem(at: file)
+        #expect(store.resolveLastOpened() == nil,
+                "While the file is genuinely gone, resolution returns nil (DC-4)")
+        #expect(store.hasRecord == true,
+                "RETAIN-on-failure: the bookmark stays even after a failed resolve (DC-6)")
 
-        try FileManager.default.moveItem(at: stashed, to: file)
+        try Data("# hi\n".utf8).write(to: file)
         let recovered = store.resolveLastOpened()
         #expect(recovered != nil,
-                "RETAIN-on-failure: a transient miss must not erase the reference (DC-5)")
+                "RETAIN-on-failure: a transient miss must not erase the reference (DC-5/DC-6)")
     }
 
     @Test("Repeated reads never erase the reference")
