@@ -2,4 +2,4 @@
 
 | ID    | Description                                           | Wave | Status  | Notes |
 |-------|-------------------------------------------------------|------|---------|-------|
-| T-001 | Migrate MarkdownThemeFactory to Theme.gitHub base     | 1    | pending |       |
+| T-001 | Migrate MarkdownThemeFactory to Theme.gitHub base     | 1    | complete | (SHA filled at commit) |

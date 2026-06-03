@@ -41,23 +41,12 @@ enum MarkdownThemeFactory {
     /// The Markdown theme applied to `RenderedView`'s `Markdown(...)` call.
     static func makeTheme() -> Theme {
         let baseSize = bodyFont().pointSize
-        return Theme()
+        return Theme.gitHub
             .text {
                 FontProperties(family: .system(), size: baseSize)
             }
-            .code {
-                FontFamilyVariant(.monospaced)
-                FontSize(.em(0.85))
-            }
-            .strong {
-                FontWeight(.semibold)
-            }
-            .emphasis {
-                FontStyle(.italic)
-            }
             .heading1 { configuration in
                 configuration.label
-                    .markdownMargin(top: 24, bottom: 16)
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(.em(2.0))
@@ -66,7 +55,6 @@ enum MarkdownThemeFactory {
             }
             .heading2 { configuration in
                 configuration.label
-                    .markdownMargin(top: 24, bottom: 16)
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(.em(1.5))
@@ -75,7 +63,6 @@ enum MarkdownThemeFactory {
             }
             .heading3 { configuration in
                 configuration.label
-                    .markdownMargin(top: 24, bottom: 16)
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(.em(1.25))
@@ -84,7 +71,6 @@ enum MarkdownThemeFactory {
             }
             .heading4 { configuration in
                 configuration.label
-                    .markdownMargin(top: 24, bottom: 16)
                     .markdownTextStyle {
                         FontWeight(.semibold)
                     }
@@ -92,7 +78,6 @@ enum MarkdownThemeFactory {
             }
             .heading5 { configuration in
                 configuration.label
-                    .markdownMargin(top: 24, bottom: 16)
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(.em(0.875))
@@ -101,7 +86,6 @@ enum MarkdownThemeFactory {
             }
             .heading6 { configuration in
                 configuration.label
-                    .markdownMargin(top: 24, bottom: 16)
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(.em(0.85))
