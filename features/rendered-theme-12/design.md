@@ -31,8 +31,8 @@ After this change the factory has three distinct zones:
 | Zone | What it does |
 |------|-------------|
 | Base | `Theme.gitHub` — provides complete styling for all block and inline elements not overridden below |
-| `text` override | Forces body text to track `UIFont.preferredFont(forTextStyle: .body)`, enabling Dynamic Type scaling |
-| `heading1`–`heading6` overrides | Apply em-relative sizes and `.semibold` weight anchored to the body font size, preserving the typographic hierarchy at every Dynamic Type size; each heading retains `.isHeader` accessibility trait |
+| `text` override | Forces body text to a point size that equals the current system body text preference, enabling Dynamic Type scaling (BC-8) |
+| `heading1`–`heading6` overrides | Apply em-relative sizes and semibold weight anchored to the body font size, preserving the typographic hierarchy at every Dynamic Type size; each heading retains the `.isHeader` accessibility trait; no margin values are set — heading margins are inherited from `Theme.gitHub`'s em-relative defaults (AC-8.6) |
 
 Removed overrides (now subsumed by `Theme.gitHub`):
 - `.code { ... }` — `Theme.gitHub` provides monospaced inline code styling.
@@ -41,33 +41,22 @@ Removed overrides (now subsumed by `Theme.gitHub`):
 
 ---
 
-## Architectural Approach: `Theme.gitHub` Chaining
+## Architectural Approach: Minimal Override on a Complete Base Theme
 
-`Theme.gitHub` is a static computed property on `MarkdownUI.Theme` that returns a
-fully-configured theme. In swift-markdown-ui 2.4.1 every theme-builder method
-(`text`, `heading1`, `codeBlock`, `tableCell`, etc.) is defined on `Theme` with value
-semantics: it copies the current theme, replaces the named element's style, and returns
-the new theme. This means any sequence of `.element { ... }` calls chained on
-`Theme.gitHub` produces a new `Theme` value that inherits every unmentioned element
-from `Theme.gitHub` and replaces only the elements named in the chain.
+`Theme.gitHub` (swift-markdown-ui 2.4.1) is a fully-configured theme value. The
+behavioral property this approach relies on is that any implementation producing a
+`Theme` that starts from `Theme.gitHub` and replaces only the `text` and
+`heading1`–`heading6` element styles will inherit every other element's styling from
+`Theme.gitHub` unchanged. This means tables, code blocks, blockquotes, paragraph
+spacing, links, list spacing, and thematic breaks all render exactly as `Theme.gitHub`
+defines them — BC-1 through BC-7 are satisfied by the absence of overrides, not by
+positive custom code.
 
-The factory method becomes:
-
-```swift
-Theme.gitHub
-    .text { ... }         // Dynamic Type body size
-    .heading1 { ... }     // em-relative, semibold, .isHeader
-    ...
-    .heading6 { ... }
-```
-
-No element other than `text` and `heading1`–`heading6` appears in the chain. The
-absence of an override for a given element is the active decision: it means that
-element's rendering comes entirely from `Theme.gitHub` with no maintenance burden.
-
-This is the minimal-override principle. Adding any override for an element whose
-`Theme.gitHub` behavior is already correct is a violation of FM-6 (requirements.md)
-and must not be done.
+The minimal-override principle: `makeTheme()` overrides only `text` and
+`heading1`–`heading6`. Every other element is left unconfigured, which is the active
+decision that every unoverridden element's rendering comes entirely from `Theme.gitHub`.
+Adding any override for an element whose `Theme.gitHub` behavior is already correct
+would violate FM-6 (requirements.md) and must not be done.
 
 ---
 
@@ -140,12 +129,21 @@ Colors used in the `text` and heading overrides come from `Theme.gitHub` (inheri
 `Color.primary`, semantic system colors, or adaptive `Color` constructions. No
 `Color(red:green:blue:)` or equivalent literal appears in the new code.
 
+**BC-15 — Heading margins are inherited from `Theme.gitHub`.**
+The heading overrides in `makeTheme()` do not set any explicit margin values. Heading
+top and bottom margins come entirely from `Theme.gitHub`'s defaults, which use
+em-relative values that scale with the rendered font size. This is the behavioral
+consequence of AC-8.6: a heading builder that sets fixed-pt margin values (e.g., 24 pt
+top, 16 pt bottom) conflicts with the feature's intent to inherit as much as possible
+from `Theme.gitHub`.
+
 ---
 
 ## Tests That Must Continue to Pass
 
 All tests in `Markus_v3Tests/` must continue to pass. The tests directly relevant to
-this feature are in `NativePolish6_TypographyAndMaterialTests.swift`:
+this feature verify the Dynamic Type contract against `MarkdownThemeFactory`'s public
+static interface:
 
 | Test | Requirement traceability |
 |------|--------------------------|
@@ -157,14 +155,16 @@ this feature are in `NativePolish6_TypographyAndMaterialTests.swift`:
 | `renderedViewAtAccessibilityXL` | AC-8.2 edge case: no overflow or crash at max Dynamic Type size |
 | `renderedViewAtAccessibilityXLNoClip` | AC-8.2 edge case: constructible with long content |
 
-These tests call `MarkdownThemeFactory.bodyFont()` and `MarkdownThemeFactory.headingFont(level:)`
-directly. Their contracts are unchanged by this feature (AC-8.1, AC-8.2, AC-8.3). The
-`makeTheme()` change does not affect these static entry points.
+These tests exercise `MarkdownThemeFactory.bodyFont()` and
+`MarkdownThemeFactory.headingFont(level:)` directly. Those two methods are public
+test-facing contracts (named explicitly because they are the interface this project
+exposes to callers). Their behavioral contracts are unchanged by this feature
+(AC-8.1, AC-8.2, AC-8.3). The `makeTheme()` change does not affect these static entry
+points.
 
-The `RenderedViewTests` suite tests in `RenderedViewTests.swift` call
-`MarkdownThemeFactory.makeTheme()` indirectly (via `RenderedView` construction). They
-verify constructibility and tap routing; none of them assert on specific theme properties,
-so they pass as long as `makeTheme()` does not crash (BC-13).
+Tests that exercise `MarkdownThemeFactory.makeTheme()` indirectly (via `RenderedView`
+construction) verify constructibility and tap routing; none of them assert on specific
+theme properties, so they pass as long as `makeTheme()` does not crash (BC-13).
 
 ---
 
@@ -180,12 +180,13 @@ the new `bodyFont().pointSize`. This seam is unchanged by this feature.
 
 ### `MarkdownThemeFactory` → test suite
 
-`NativePolish6_TypographyAndMaterialTests.swift` drives `MarkdownThemeFactory.bodyFont()`
-and `MarkdownThemeFactory.headingFont(level:)` directly via `RenderedViewTypographyProbe`.
-These public static methods are the test-facing contract and must not be removed or
-renamed. The probe explicitly does not inspect the SwiftUI view tree, which means
-the internal change from `Theme()` to `Theme.gitHub` is invisible to it — the tests
-pass by construction.
+The unit tests for this feature drive `MarkdownThemeFactory.bodyFont()` and
+`MarkdownThemeFactory.headingFont(level:)` directly, without inspecting the SwiftUI
+view tree. This means the internal change from `Theme()` to `Theme.gitHub` is invisible
+to the tests — they verify the public static contracts (AC-8.1, AC-8.2, AC-8.3) and
+pass by construction as long as those contracts are satisfied. `bodyFont()` and
+`headingFont(level:)` must not be removed or renamed because they are the public
+interface this project exposes to its test callers.
 
 ### `MarkdownThemeFactory` → `Theme.gitHub` (swift-markdown-ui 2.4.1)
 
@@ -224,4 +225,6 @@ Architecture stable — no requirements changes flagged.
 The requirements document already specifies `Theme.gitHub` as the base, names the exact
 overrides to keep (`text`, `heading1`–`heading6`), names the overrides to remove
 (`code`, `strong`, `emphasis`), and constrains the implementation to `MarkdownThemeFactory.swift`
-only. The architecture maps directly onto those constraints without friction.
+only. AC-8.5 (`.isHeader` trait preservation) and AC-8.6 (no explicit heading margins)
+are incorporated into BC-9, BC-15, and the heading-override zone description above.
+The architecture maps directly onto those constraints without friction.
