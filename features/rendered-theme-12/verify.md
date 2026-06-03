@@ -214,4 +214,39 @@ unit-level proxy.
 
 ## DAG Task → Test Mapping
 
-*(Placeholder — will be added by the DAG stage.)*
+All tests verify properties of `MarkdownThemeFactory.swift` — the sole output of T-001.
+Every test therefore maps to T-001.
+
+| Task  | Suite / Test(s) | What it verifies |
+|-------|-----------------|------------------|
+| T-001 | `US8_DynamicTypeTests / bodyFontMatchesPreferredFont` | AC-8.1: bodyFont() point size equals preferredFont(.body) |
+| T-001 | `US8_DynamicTypeTests / bodyFontIsNotHardCoded` | AC-8.1: bodyFont() is not a hard-coded constant |
+| T-001 | `US8_DynamicTypeTests / headingFontEmFactors` | AC-8.2: heading sizes match em factors × bodyFont().pointSize |
+| T-001 | `US8_DynamicTypeTests / headingHierarchyIsMonotonic` | AC-8.3: heading sizes strictly descend H1>H2>H3≥H4>H5>H6 |
+| T-001 | `US8_DynamicTypeTests / headingHierarchyAtAllDynamicTypeSizes` | AC-8.3 edge case: hierarchy holds at any Dynamic Type size |
+| T-001 | `US8_DynamicTypeTests / headingBuildersDoNotSetExplicitMargins` | AC-8.6 / BC-15: no markdownMargin calls in heading builders |
+| T-001 | `US9_InlineStyleTests / makeThemeDoesNotCrash` | AC-9.4 / BC-13: makeTheme() does not crash |
+| T-001 | `US9_InlineStyleTests / makeThemeIsIdempotent` | AC-9.4: makeTheme() can be called multiple times without crashing |
+| T-001 | `FM1_ThemeBaseTests / themeBaseIsGitHub` | FM-1: Theme.gitHub is the chain root; Theme() is not returned |
+| T-001 | `FM5_RenderedViewUnchangedTests / renderedViewFileExists` | FM-5: RenderedView.swift exists and was not deleted |
+| T-001 | `FM5_RenderedViewUnchangedTests / renderedViewDoesNotInlineThemeConstruction` | FM-5: RenderedView.swift does not construct theme inline |
+| T-001 | `FM7_RemovedOverridesTests / noCodeOverride` | FM-7: .code override removed (subsumed by Theme.gitHub) |
+| T-001 | `FM7_RemovedOverridesTests / noStrongOverride` | FM-7: .strong override removed (subsumed by Theme.gitHub) |
+| T-001 | `FM7_RemovedOverridesTests / noEmphasisOverride` | FM-7: .emphasis override removed (subsumed by Theme.gitHub) |
+| T-001 | `FM8_NoHardCodedColorsTests / noHardCodedColorRGB` | FM-8 / BC-14: no Color(red:green:blue:) literals |
+| T-001 | `FM8_NoHardCodedColorsTests / noHardCodedUIColorRGB` | FM-8 / BC-14: no UIColor(red:green:blue:alpha:) literals |
+| T-001 | `FM9_IsHeaderTraitTests / allHeadingBuildersHaveIsHeaderTrait` | FM-9 / AC-8.5: exactly 6 .accessibilityAddTraits(.isHeader) calls |
+| T-001 | `FM9_IsHeaderTraitTests / allSixHeadingOverridesPresent` | FM-3: heading1–heading6 overrides all present in makeTheme() |
+| T-001 | `FM2_TextOverrideTests / textOverridePresent` | FM-2: .text override is present in makeTheme() |
+| T-001 | `FM2_TextOverrideTests / headingOverridesDoNotUseFixedPointSizes` | FM-4: no .pt() fixed point sizes in heading builders |
+| T-001 | `FM2_TextOverrideTests / bodyFontPointSizeEqualsSystemBodyPreference` | BC-8: bodyFont() point size equals UIFont.preferredFont(.body).pointSize |
+| T-001 | `BC9_HeadingProportionalityTests / headingFontLevelsAreAllDefined` | BC-9: headingFont(level:) returns positive sizes for all 6 levels |
+| T-001 | `BC9_HeadingProportionalityTests / headingFontSizesDerivedFromBodyFont` | BC-9: heading sizes derived from bodyFont().pointSize × em factor |
+| T-001 | `BC9_HeadingProportionalityTests / h1LargerThanBody` | BC-9 seam: H1 > body |
+| T-001 | `BC9_HeadingProportionalityTests / h6SmallerThanBody` | BC-9 seam: H6 < body (em factor 0.85) |
+| T-001 | `BC13_ConstructibilityTests / makeThemeReturnsValidTheme` | BC-13: makeTheme() returns a valid Theme at current Dynamic Type size |
+| T-001 | `BC13_ConstructibilityTests / renderedViewWithThemeIsConstructible` | BC-13 integration: RenderedView constructible with theme from makeTheme() |
+| T-001 | `BC13_ConstructibilityTests / renderedViewWithAllGFMBlockElements` | BC-13 / US-1–7 smoke: RenderedView constructible with tables, code blocks, blockquotes, thematic breaks, lists |
+
+**Coverage check:** T-001 has 28 tests covering all suites and all acceptance conditions.
+No task is left without a test.
