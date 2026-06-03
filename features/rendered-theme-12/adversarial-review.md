@@ -15,7 +15,7 @@ Requirements out-of-scope section states "accessibilityAddTraits(.isHeader) is a
 
 **Recommended action:** requirements — add an acceptance criterion under US-8 (or a new user story) requiring that `.isHeader` is present on each heading builder, and add a corresponding FM entry (e.g., FM-9) stating that removing `.isHeader` from any heading builder is a violation.
 
-**Status:** open
+**Status:** addressed — AC-8.5 and FM-9 added to requirements.md.
 
 ---
 
@@ -28,7 +28,7 @@ The current `makeTheme()` implementation sets `markdownMargin(top: 24, bottom: 1
 
 **Recommended action:** requirements — add a sentence to US-8 or US-9 specifying whether heading margins are (a) preserved at their current values, (b) delegated to `Theme.gitHub`, or (c) left as an implementation choice. If (c) is acceptable, that should be stated explicitly so a reviewer knows ambiguity is intentional.
 
-**Status:** open
+**Status:** addressed — AC-8.6 added to requirements.md, specifying that heading margins are delegated entirely to Theme.gitHub (no markdownMargin overrides in heading builders).
 
 ---
 

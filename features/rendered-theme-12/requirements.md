@@ -222,6 +222,21 @@ Dynamic Type size in iOS Settings causes the rendered view to call
 `makeTheme()` again on the next view body evaluation, picking up the new
 `UIFont.preferredFont(forTextStyle: .body)` size. No app restart is required.
 
+#### AC-8.5 — `.isHeader` accessibility trait present on all heading levels
+Every heading builder in `makeTheme()` (heading1 through heading6) must call
+`.accessibilityAddTraits(.isHeader)`. This trait must be present in the rendered
+output for H1, H2, H3, H4, H5, and H6. Absence of this trait on any heading
+level breaks VoiceOver heading navigation, violating WCAG 2.1 SC 1.3.1 (Info
+and Relationships). *Addresses adversarial F-001.*
+
+#### AC-8.6 — Heading margins inherited from Theme.gitHub
+The heading overrides in `makeTheme()` must NOT specify `markdownMargin` calls.
+Heading margins are entirely delegated to `Theme.gitHub`'s defaults, which use
+em-relative values that scale with the rendered font size. This policy is
+intentional: the feature's goal is to inherit as much as possible from
+`Theme.gitHub`, and fixed-pt margin overrides (e.g., `markdownMargin(top: 24,
+bottom: 16)`) conflict with that intent. *Addresses adversarial F-002.*
+
 #### Edge case — Accessibility Extra Extra Extra Large
 At the largest Dynamic Type accessibility size, `bodyFont().pointSize` is
 large but still finite. `headingFont(level: 1)` is larger than body by the
@@ -298,6 +313,12 @@ violation of FM-6.
 `Theme.gitHub` (inherited), `Color.primary`, semantic system colors, or
 adaptive `Color` constructions that resolve correctly in both light and dark
 mode.
+
+**FM-9** — `.isHeader` accessibility trait must not be silently removed from
+any heading builder (heading1 through heading6). Omitting
+`.accessibilityAddTraits(.isHeader)` from a heading builder block during the
+migration constitutes a violation of AC-8.5 and WCAG 2.1 SC 1.3.1, regardless
+of whether the heading renders visually correctly. *Addresses adversarial F-001.*
 
 ---
 
