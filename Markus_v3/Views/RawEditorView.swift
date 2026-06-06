@@ -40,6 +40,11 @@ struct RawEditorView: View {
             pendingScrollAnchor: $pendingScrollAnchor,
             focusOnAppear: focusOnAppear
         )
+        // ipad-expansion-13 — shared content column (~700pt, centered) in
+        // regular width; full-width in compact (C-B.1, C-B.4, FM-5/FM-8).
+        // Applied to both surfaces from one shared resolver so switching
+        // modes does not shift the column left/right.
+        .contentColumn()
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onEnded { value in
