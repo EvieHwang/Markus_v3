@@ -1,10 +1,22 @@
 # Adversarial Review — iPad Expansion (ipad-expansion-13)
 
-Reviewing requirements.md and design.md at commit `097b06528f60e51fc525225e04e0dabfab8de2ec` — FRESH REVIEW pass.
+Reviewing requirements.md and design.md at commit `19b8b67` — VERIFICATION PASS.
 
-Mode: fresh review. Greenfield key-command + size-class wiring; design reported no `Reuses pattern:` marker, so security/failure-mode lenses are full-spectrum (not HIGH-only) per the Stage-3 contract.
+Mode: verification pass (prior fresh review was at `097b065`). Scoped to confirming F-001's resolution and the three `## Prescription feedback` restatements held after the requirements/design edits, and attacking the fixes themselves for adjacent gaps. The full lens sweep was **not** re-run; no new findings were surfaced against unchanged content.
 
 Source ground truth verified against `Markus_v3/Views/DocumentView.swift`, `RawEditorView.swift`, `RenderedView.swift`, `Markus_v3/Host/BrowserHostController.swift`, `SceneDelegate.swift`, `Markus_v3/Models/DocumentMode.swift`.
+
+### Verification outcome (this pass)
+
+- **F-001 — verified genuinely resolved by scope removal.** Every ⌘N occurrence in requirements.md and design.md is in a removal / out-of-scope / historical context: the "Changed from prior version" note, the `US-3 … REMOVED` story stub, the Out-of-Scope entry, and design's removal markers (intro note, Component A note, `C-A.4 removed`, S-1, S-3, X-2). There is **no live ⌘N command, no create-flow invocation, and no programmatic create path**. The provider vends exactly three commands (⌘P / ⌘W / ⌘S) — confirmed in the Part 1 shortcut table, Component A, and X-2. The discoverability story (US-5 / C-A.6 / AC-5.1) lists exactly three. No dangling ⌘N cross-reference that would mislead a builder remains — the one prior-version mention (requirements §"Changed from prior version") is explicitly framed as historical ("the prior version specified four … this version specifies three").
+- **Prescription item 1 (responder placement) — verified restated as a behavioral property.** Design "Resolved deferred question" + S-4 fix *where on the chain relative to the text view* (above the raw `UITextView`, inside the presented editor session) and pin the observable consequences (fire in both modes, registered chord performs its action and inserts no literal character, all three appear in the overlay), explicitly leaving the concrete responder (`UIHostingController` / custom `UIResponder` / host/SceneDelegate) to the build step. Reads behaviorally, not as a code-shape prescription.
+- **Prescription item 2 (width realization) — verified restated as an observable property.** Component B seam note fixes C-B.4 (capped ~700pt, centered, fully usable, no clipping, non-interactive gutter, caret/selection within the column) and names the mechanism (content inset / container width vs. centering a capped region) as a build choice bounded by that guard. Behavioral, not a mechanism prescription.
+- **Prescription item 3 (size signal) — verified restated as a behavioral property.** C-B.2 fixes "capped+centered when space is ample (regular width), full-width when not, updating live on size-class transition" and leaves the exact size signal the build step reads to the build step. Behavioral, not the `@Environment(\.horizontalSizeClass)` prescription it replaced.
+- **Attack on the fixes themselves — no adjacent gap opened.**
+  - *⌘W close-and-teardown after ⌘N removal:* S-3 explicitly preserves the ⌘W teardown path (synchronous save → detector stop → session teardown → dismiss); only the ⌘N-specific double-present teardown discussion was removed. C-A.3 still pins the synchronous save before dismiss. ⌘W remains coherent and still saves synchronously.
+  - *⌘P swallow risk:* the responder-contract restatement still claims the chord *above* the raw `UITextView` inside the editor session (Resolved deferred question + S-4), so the originally-cleared FM-3 risk (⌘P consumed as text) remains cleared.
+  - *Width no-clip / full-column / non-interactive-gutter:* the restatement is additive (names mechanism as a build choice) and weakens none of C-B.4's guards.
+- **Result: 0 new open findings.** F-001 stays Resolved; all three prescription items stay addressed.
 
 ---
 
@@ -53,6 +65,6 @@ These concern HOW the design realizes a behavior (call shapes, responder identit
 
 ## Summary
 
-- Open findings: 0. (F-001 — the one prior MEDIUM — is now **resolved by scope removal**: ⌘N was dropped from the feature.)
-- `## Prescription feedback`: non-empty (3 entries).
+- Open findings: 0 — **unchanged after this verification pass** (no new findings; the fixes for F-001 and the three prescription items introduced no concrete, named adjacent failure mode). F-001 — the one prior MEDIUM — remains **resolved by scope removal**: ⌘N was dropped from the feature.
+- `## Prescription feedback`: non-empty (3 entries), all **verified still addressed** (restated as behavioral / observable properties, not code-shape prescriptions).
 - No finding carries the "Scope drift" lens; no declaration tension surfaced. Every declared behavior traces cleanly to declaration.md / feature declaration / requirements.md, and the design adds no new Shape component (consistent with the feature declaration's "adds no new component").
