@@ -10,6 +10,12 @@ struct DocumentView: View {
     /// bridge write failures into `activeAlert` with the DC-10–DC-15 lifecycle
     /// (single-alert coalescing, background latch, conflict precedence).
     let saveFailedRouter: SaveFailedAlertRouter?
+    /// ipad-expansion-13 — shared action handles wired from the host's
+    /// `EditorKeyCommandHostingController`. `DocumentView` installs the
+    /// `toggleMode` and `saveNow` closures on appear (S-2) so the ⌘P / ⌘S
+    /// key commands route through the *existing* transition / save flows
+    /// rather than reimplementing them.
+    let editorActions: EditorActions?
 
     @State private var mode: DocumentMode = .rendered
     @State private var didInitMode = false
@@ -36,12 +42,14 @@ struct DocumentView: View {
          fileURL: URL? = nil,
          detector: ChangeDetector? = nil,
          onBack: (() -> Void)? = nil,
-         saveFailedRouter: SaveFailedAlertRouter? = nil) {
+         saveFailedRouter: SaveFailedAlertRouter? = nil,
+         editorActions: EditorActions? = nil) {
         self.document = document
         self.fileURL = fileURL
         self.detector = detector
         self.onBack = onBack
         self.saveFailedRouter = saveFailedRouter
+        self.editorActions = editorActions
         let doc = document
         self._coordinator = State(wrappedValue: AutosaveCoordinator(onIdle: { [weak doc] in
             doc?.markDirty()
@@ -109,6 +117,17 @@ struct DocumentView: View {
                 DetectorSurfaces(detector: detector, document: document)
             }
         }
+        // ipad-expansion-13 — register ⌘P / ⌘W / ⌘S as SwiftUI keyboard
+        // shortcuts so the OS reliably delivers chords to the editor session
+        // (the responder-chain reach through `EditorKeyCommandHostingController`
+        // is brittle when nothing in the SwiftUI tree is first responder; the
+        // SwiftUI shortcut handler installs itself on the chain regardless).
+        // Each shortcut routes to the same `editorActions` closures the
+        // UIKit `keyCommands` route to, so both mechanisms invoke the same
+        // existing flow (FM-1). The hidden buttons add no visible chrome
+        // (zero-size, no opacity) — the only user-visible effect is the
+        // discoverability overlay carrying their titles.
+        .background(editorKeyboardShortcuts)
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
@@ -143,6 +162,12 @@ struct DocumentView: View {
             }
             document.undoManager = undoManager
             startDetectorIfNeeded()
+            // ipad-expansion-13 — wire ⌘P / ⌘S to the existing toggle and
+            // save flows (S-2). Closures are invoked by
+            // `EditorKeyCommandHostingController` when the chord arrives;
+            // they route through `switchTo` / the eye-button effect /
+            // `triggerSave` — never a second implementation (FM-1).
+            installEditorActions()
             // DC-13 (save-bridge-hardening-9) — view is alive; promote any
             // failure latched while no view was visible.
             saveFailedRouter?.viewBecameActive()
@@ -437,6 +462,68 @@ struct DocumentView: View {
 
     private func triggerSave() {
         document.markDirty()
+    }
+
+    /// ipad-expansion-13 — wire the ⌘P / ⌘S handles into the *existing*
+    /// transition and save flows. ⌘P consults the current `mode` and runs
+    /// the same effect the screen would: rendered→raw is the tap-to-edit
+    /// path (`switchTo(.rendered, target: .raw)`, which seeds the raw anchor
+    /// and posts "Editing mode"); raw→rendered is the eye-button path (seed
+    /// the rendered anchor from the raw scroll fraction, trigger a save,
+    /// set `mode = .rendered`, post "Preview mode"). ⌘S routes through
+    /// `triggerSave()`. The host owns `closeEditor` via `onBack` already.
+    /// All three closures invoke existing entry points, never a parallel
+    /// implementation (FM-1, FM-9).
+    private func installEditorActions() {
+        editorActions?.toggleMode = {
+            performToggleMode()
+        }
+        editorActions?.saveNow = {
+            triggerSave()
+        }
+    }
+
+    /// Shared toggle effect invoked by both the `EditorActions.toggleMode`
+    /// closure (UIKit chord delivery via `EditorKeyCommandHostingController`)
+    /// and the SwiftUI `.keyboardShortcut("p", modifiers: .command)` button
+    /// in `editorKeyboardShortcuts`. Routes through the existing `switchTo`
+    /// / eye-button effect, never a parallel transition.
+    private func performToggleMode() {
+        switch mode {
+        case .rendered:
+            pendingRawAnchor = ScrollAnchor(fractionalY: 0)
+            switchTo(.rendered, target: .raw)
+        case .raw:
+            pendingRenderedAnchor = ScrollAnchor(fractionalY: rawScrollState.currentFractionalY)
+            triggerSave()
+            mode = .rendered
+            postModeAnnouncement(for: .rendered)
+        }
+    }
+
+    /// ipad-expansion-13 — hidden buttons that install ⌘P / ⌘W / ⌘S as
+    /// SwiftUI keyboard shortcuts. SwiftUI hooks each shortcut into the
+    /// responder chain so the OS reliably routes the chord to the active
+    /// editor session, even when nothing is first responder (the UIKit
+    /// `keyCommands` reach through the hosting controller is brittle in
+    /// that case). The buttons are size-zero / opacity-zero / hit-test
+    /// disabled, so they add no visible chrome (FM-4) — the only
+    /// user-visible effect is each chord performing its action and the
+    /// discoverability overlay carrying the action titles.
+    @ViewBuilder
+    private var editorKeyboardShortcuts: some View {
+        ZStack {
+            Button("Toggle Preview") { performToggleMode() }
+                .keyboardShortcut("p", modifiers: .command)
+            Button("Close") { onBack?() }
+                .keyboardShortcut("w", modifiers: .command)
+            Button("Save") { triggerSave() }
+                .keyboardShortcut("s", modifiers: .command)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func startDetectorIfNeeded() {
