@@ -10,17 +10,21 @@ Source ground truth verified against `Markus_v3/Views/DocumentView.swift`, `RawE
 
 ## Open findings
 
+*None. The sole prior finding (F-001) is resolved — see Resolved findings below.*
+
+---
+
+## Resolved findings
+
 ### F-001 — ⌘N from inside a presented editor has no defined invocation/replacement path
 
 - **Severity:** MEDIUM
 - **Lens:** Failure modes / coverage
-- **Scope trace:** AC-3.2 ("⌘N works while a document is already open in the editor (raw or rendered) ... returning the user into the newly created document by the existing open path") and US-3. This is declared behavior, not an implementation prescription — it passes the scope check.
-- **Finding:** The new-document flow is the system create flow `documentBrowser(_:didRequestDocumentCreationWithHandler:)`, which is a **delegate callback the OS invokes when the user taps the browser's create control on `UIDocumentBrowserViewController`**. In the running app the editor is presented as a full-screen `UINavigationController` modal *on top of* the host (`installEditorSession`: `present(nav, animated:)` with `modalPresentationStyle = .fullScreen`). Two concrete failure modes the design does not resolve:
-  1. **No invocation handle.** There is no public API to programmatically trigger `didRequestDocumentCreationWithHandler`. The design (C-A.4 / S-1) asserts "⌘N reaches the host so the system create flow runs" but does not name what the provider calls to start creation from inside the editor. As written, the only thing the provider can reach is the host; the host has no method that begins a system create. So ⌘N-from-editor risks being a silent no-op — a coverage gap against AC-3.2, not just an implementation detail.
-  2. **Double-present conflict on completion.** Even if creation is triggered, the success path runs `presentDocument(at:)` → `installEditorSession` → `present(nav, …)` on the host. The host already has `presentedViewController` set to the current editor nav. Calling `present` on a controller that is already presenting either no-ops with a runtime warning or fails to show the new document. AC-3.2's "returning the user into the newly created document" requires the current editor to be dismissed first; the design specifies no such teardown for the ⌘N path (it specifies it only for ⌘W via `dismissPresentedEditor()`).
-- **Why it matters (named risk area):** This is the "⌘N over a dirty doc" risk called out for this feature. If the current document is dirty and ⌘N is handled by tearing the editor down the way ⌘W does, edits must be saved synchronously first; if ⌘N is handled by stacking a new presentation, the system warns/fails. Either way the design has to state which, and neither is specified.
-- **Recommended action (architecture):** In design.md, specify the ⌘N-from-editor sequence explicitly: (a) the concrete host entry point the provider invokes to begin a system create while the editor is presented (and whether that is even reachable, or whether ⌘N must first dismiss the editor via the same synchronous-save `dismissPresentedEditor()` path and then surface the browser's create), and (b) how the resulting `presentDocument` avoids the double-present (dismiss-then-present ordering). Tie the chosen sequence back to AC-3.2 and FM-1 (no parallel create path) and AC-2.2-style save-before-teardown so a dirty doc is not lost.
-- **Status:** open
+- **Resolution:** **Resolved by scope removal**, not by adding an invocation path. A product decision dropped ⌘N (new-document creation) from this feature entirely. The feature is now three shortcuts (⌘P / ⌘W / ⌘S) plus the ~700pt width constraint. With ⌘N gone, neither failure mode below can occur: there is no shortcut that needs a programmatic create handle, and no ⌘N success path that could double-present. The retired story `US-3` / `AC-3.x` and the out-of-scope section of requirements.md now record the removal and its rationale (system-create-only flow with no programmatic trigger reachable from inside the presented editor; Markus's own programmatic create path was deliberately removed — roadmap item 5, superseded by `restore-system-create-7`). The matching `## Components → requirements traceability` row and C-A.4 / S-1 ⌘N text in design.md are superseded by this scope change.
+- **Original finding (for the record):** The new-document flow is the system create flow `documentBrowser(_:didRequestDocumentCreationWithHandler:)`, a **delegate callback the OS invokes when the user taps the browser's create control on `UIDocumentBrowserViewController`**. In the running app the editor is presented as a full-screen `UINavigationController` modal *on top of* the host (`installEditorSession`: `present(nav, animated:)` with `modalPresentationStyle = .fullScreen`). Two concrete failure modes the design did not resolve:
+  1. **No invocation handle.** There is no public API to programmatically trigger `didRequestDocumentCreationWithHandler`. The design (C-A.4 / S-1) asserted "⌘N reaches the host so the system create flow runs" but did not name what the provider calls to start creation from inside the editor. As written, ⌘N-from-editor risked being a silent no-op — a coverage gap against AC-3.2.
+  2. **Double-present conflict on completion.** Even if creation were triggered, the success path runs `presentDocument(at:)` → `installEditorSession` → `present(nav, …)` on the host, which already has `presentedViewController` set to the current editor nav. Calling `present` on a controller already presenting either no-ops with a runtime warning or fails to show the new document; AC-3.2's "returning the user into the newly created document" required a teardown the ⌘N path never specified.
+- **Status:** resolved (scope removal — ⌘N dropped from feature)
 
 ---
 
@@ -49,6 +53,6 @@ These concern HOW the design realizes a behavior (call shapes, responder identit
 
 ## Summary
 
-- Open findings: 1 MEDIUM (F-001), 0 HIGH, 0 LOW.
+- Open findings: 0. (F-001 — the one prior MEDIUM — is now **resolved by scope removal**: ⌘N was dropped from the feature.)
 - `## Prescription feedback`: non-empty (3 entries).
 - No finding carries the "Scope drift" lens; no declaration tension surfaced. Every declared behavior traces cleanly to declaration.md / feature declaration / requirements.md, and the design adds no new Shape component (consistent with the feature declaration's "adds no new component").

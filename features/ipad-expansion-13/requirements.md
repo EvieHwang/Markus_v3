@@ -1,5 +1,21 @@
 # Requirements — iPad Expansion (ipad-expansion-13)
 
+## Changed from prior version
+
+**⌘N (new-document creation) removed from scope.** The prior version specified
+four shortcuts (⌘P / ⌘W / ⌘N / ⌘S); this version specifies **three** (⌘P / ⌘W /
+⌘S). A product decision dropped ⌘N: the only new-document path is the system
+document browser's create control (`didRequestDocumentCreationWithHandler`), a
+delegate callback the OS invokes from the browser, with no programmatic trigger
+reachable from inside the presented editor; and Markus's own programmatic create
+path was deliberately removed (roadmap item 5, superseded by
+`restore-system-create-7`). Story `US-3` / `AC-3.x` are retired (IDs not reused);
+the discoverability overlay now lists three commands; failure modes and the
+out-of-scope section are updated accordingly. This change **resolves adversarial
+finding F-001** (the ⌘N invocation/double-present gap) by scope removal rather
+than by adding an invocation path. The width-constraint requirements (Part 2) and
+the ⌘P / ⌘W / ⌘S requirements are otherwise unchanged.
+
 ## Context
 
 This feature makes Markus feel like a first-class iPad app through two bounded
@@ -25,13 +41,6 @@ touched areas already exist.
   trigger saves. This is the **existing save flow** ⌘S must invoke. There is no
   user-facing save button, save confirmation, or save toast today, and this
   feature adds none.
-- **New document.** New-document creation is the system create flow:
-  `BrowserHostController.documentBrowser(_:didRequestDocumentCreationWithHandler:)`
-  materializes an empty `.md` template in the temporary directory and hands it to
-  `UIDocumentBrowserViewController` with `.copy`; the system copies it into the
-  folder the user is browsing, runs its inline rename UI, and opens the result
-  through the normal pick/import path. This is the **existing new-document flow**
-  ⌘N must invoke — Markus contributes no directory choice, name, or storage logic.
 - **Return to browser.** The editor is presented as a `UIHostingController` inside
   a full-screen `UINavigationController` by `BrowserHostController`. The `onBack`
   closure runs `dismissPresentedEditor()`, which saves synchronously, stops the
@@ -53,7 +62,7 @@ model, save bridge, detector, or storage code.
 
 ## Part 1 — Hardware keyboard shortcuts
 
-The four shortcuts below are registered as `UIKeyCommand`s at a responder level
+The three shortcuts below are registered as `UIKeyCommand`s at a responder level
 where the iPad discoverability overlay (hold ⌘) can enumerate them, and where
 they are reachable both while the raw text editor is first responder and while
 the rendered view is shown.
@@ -62,8 +71,12 @@ the rendered view is shown.
 |----------|--------|----------------------|
 | ⌘P | Toggle raw ↔ rendered | mode-toggle flow (`switchTo` / eye-button path) |
 | ⌘W | Close editor → file browser | return-to-browser flow (`onBack` / `dismissPresentedEditor`) |
-| ⌘N | Create a new document | system create flow (`didRequestDocumentCreationWithHandler`) |
 | ⌘S | Explicit save | save flow (`triggerSave()` / `markDirty()`) |
+
+*Addresses adversarial F-001 by removing ⌘N from scope: there is no programmatic
+trigger for the system create flow reachable from inside the presented editor,
+and Markus's own programmatic create path was deliberately removed (roadmap item
+5, superseded by `restore-system-create-7`). See Out of Scope and the declaration.*
 
 ### US-1 — Toggle mode from the keyboard (⌘P)
 
@@ -129,31 +142,20 @@ leave the app with no visible root.
 
 ---
 
-### US-3 — Create a new document from the keyboard (⌘N)
+### US-3 — Create a new document from the keyboard (⌘N) — REMOVED
 
-**As a writer with a hardware keyboard, I want to press ⌘N to create a new
-markdown document so I can start writing immediately.**
+**This story has been removed from the feature.** ⌘N (new-document creation) is
+out of scope. The existing creation flow is the system document browser's create
+control (`didRequestDocumentCreationWithHandler`), a delegate callback the OS
+invokes from the browser; it has no programmatic trigger reachable from inside
+the presented editor. Markus's own programmatic create path was deliberately
+removed (roadmap item 5, superseded by `restore-system-create-7`). The ID `US-3`
+and the AC IDs `AC-3.x` are retired and not reused. See Out of Scope and the
+feature declaration.
 
-#### AC-3.1 — Invokes the existing system create flow
-Pressing ⌘N triggers the same new-document creation the browser's create control
-triggers — the system template-copy flow via
-`documentBrowser(_:didRequestDocumentCreationWithHandler:)`, including the
-system's inline rename UI and folder placement. Markus contributes no directory
-choice, no name, and no storage logic beyond what already exists.
-
-#### AC-3.2 — Honored from inside the editor
-⌘N works while a document is already open in the editor (raw or rendered). The
-new-document request reaches the browser host so the system create flow runs,
-returning the user into the newly created document by the existing open path.
-
-#### AC-3.3 — No new document model or storage
-⌘N introduces no app-managed copy, no new naming scheme, and no new persistence.
-It is purely a keyboard trigger for the existing create flow.
-
-#### Edge case — create cancelled
-If the user cancels the system rename/create UI, the app returns to its prior
-state (browser, or the previously open document) with no new file created and no
-crash — the same outcome as cancelling a create started from the browser control.
+*Addresses adversarial F-001 by removing ⌘N from scope (the
+invocation/double-present gap disappears because the shortcut is dropped, not
+because a new invocation path was added).*
 
 ---
 
@@ -191,22 +193,24 @@ spurious error.
 **As an iPad user, I want to hold ⌘ and see the available shortcuts so I can
 discover and remember them.**
 
-#### AC-5.1 — All four listed
+#### AC-5.1 — All three listed
 When a hardware keyboard is attached and the editor is the active surface,
-holding ⌘ shows the discoverability overlay listing all four commands, each with
-a human-readable title (e.g. "Toggle Preview", "Close", "New Document", "Save").
-Each command's title is supplied via the key command's discoverability title so
-the overlay can render it.
+holding ⌘ shows the discoverability overlay listing all three commands, each with
+a human-readable title (e.g. "Toggle Preview", "Close", "Save"). Each command's
+title is supplied via the key command's discoverability title so the overlay can
+render it.
 
 #### AC-5.2 — Titles are stable and descriptive
-The four titles are distinct, describe the action (not the implementation), and
+The three titles are distinct, describe the action (not the implementation), and
 do not change based on mode (the same command may toggle direction internally,
 but its overlay title is stable).
 
 #### Edge case — overlay at the browser
 If ⌘ is held while the browser is the active surface (no editor presented), the
-overlay shows at least the commands valid there (⌘N at minimum). Editor-only
-commands need not appear when no editor is presented. No crash either way.
+editor-only commands need not appear (the editor-session-scoped provider does not
+exist there). No crash either way. The feature registers no editor command at the
+browser level (⌘N is out of scope, so there is nothing this feature offers at the
+browser).
 
 ---
 
@@ -216,7 +220,7 @@ commands need not appear when no editor is presented. No crash either way.
 to behave exactly as before so the shortcut feature is invisible to me.**
 
 #### AC-6.1 — No behavior change without a keyboard
-On a device with no hardware keyboard, none of the four commands can fire (there
+On a device with no hardware keyboard, none of the three commands can fire (there
 is no key source). All existing open / render / edit / save / mode-switch /
 conflict behavior is unchanged. No device conditional is required — the commands
 simply never receive input.
@@ -336,12 +340,12 @@ viewport today is the acceptable behavior — the cap introduces no new clipping
 
 ## Failure Modes (what must NOT happen)
 
-**FM-1** — A ⌘P / ⌘W / ⌘N / ⌘S press must not introduce a *parallel*
+**FM-1** — A ⌘P / ⌘W / ⌘S press must not introduce a *parallel*
 implementation of its action. Each must route through the existing flow named in
-the table above. A divergent save, toggle, close, or create path is a defect even
-if it appears to work.
+the table above. A divergent save, toggle, or close path is a defect even if it
+appears to work.
 
-**FM-2** — ⌘S, ⌘W, and ⌘N must not introduce any new confirmation dialog, save
+**FM-2** — ⌘S and ⌘W must not introduce any new confirmation dialog, save
 prompt, "discard changes?" sheet, or success toast beyond what the existing flows
 already display. Save failures must continue to surface only through the existing
 `SaveFailedAlertRouter` / `ActiveAlert.saveFailed` path.
@@ -368,7 +372,9 @@ rendered must use the same maximum width so switching modes does not shift the
 text column (AC-7.3).
 
 **FM-9** — No new document model, storage scheme, app-managed copy, or naming
-logic may be introduced by ⌘N or ⌘S. Both invoke existing flows unchanged.
+logic may be introduced by ⌘S. It invokes the existing save flow unchanged.
+(⌘N, which would have touched the create/storage path, is out of scope — see
+Out of Scope.)
 
 ---
 
@@ -376,6 +382,16 @@ logic may be introduced by ⌘N or ⌘S. Both invoke existing flows unchanged.
 
 Consistent with the feature declaration:
 
+- **⌘N / new-document creation** — dropped from this feature. The existing
+  creation flow is the system browser's create control
+  (`didRequestDocumentCreationWithHandler`), a delegate callback the OS invokes
+  from the browser; it has **no programmatic trigger reachable from inside the
+  presented editor**. Markus's own programmatic create path was deliberately
+  removed (roadmap item 5, superseded by `restore-system-create-7`).
+  Reintroducing one would reverse that decision and add storage-write scope this
+  feature excludes; a no-op shortcut would mislead. This removal *addresses
+  adversarial finding F-001*. ⌘N may return in a future feature if a programmatic
+  create is reconsidered. See the feature declaration.
 - **Formatting shortcuts (⌘B / ⌘I / ⌘K) and any formatting toolbar** — this
   feature deliberately excludes all text-mutating shortcuts and toolbar buttons.
 - **⌘/ as the mode-toggle key** — the toggle is bound to ⌘P; ⌘/ is not used.
@@ -388,11 +404,13 @@ Consistent with the feature declaration:
   applied (US-8, FM-5).
 - **Sidebar / file-navigation panel, drag and drop, pointer/hover interactions,
   and Mac-aware entry flow** — none are part of this feature.
-- **New document model or storage changes** — ⌘N and ⌘S invoke existing creation
-  and save flows unchanged (FM-9).
+- **New document model or storage changes** — ⌘S invokes the existing save flow
+  unchanged (FM-9); no new creation, model, or storage path is added (⌘N, which
+  would have, is out of scope above).
 - **New save UI** — no save button, save toast, or save indicator beyond the
   existing flow (FM-2).
-- **Customizable / remappable shortcuts** — the four bindings are fixed.
+- **Customizable / remappable shortcuts** — the three bindings (⌘P / ⌘W / ⌘S)
+  are fixed.
 
 ---
 
