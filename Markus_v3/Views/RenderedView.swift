@@ -39,7 +39,10 @@ struct RenderedView: View {
             Markdown(MarkdownLineBreakNormalizer.normalize(text))
                 .markdownTheme(MarkdownThemeFactory.makeTheme())
                 .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // ipad-expansion-13 — shared content column (~700pt, centered)
+                // in regular width; full-width in compact (C-B.1, C-B.2, FM-5).
+                // Replaces the prior `.frame(maxWidth: .infinity, alignment: .leading)`.
+                .contentColumn()
                 .background(
                     GeometryReader { proxy in
                         Color.clear

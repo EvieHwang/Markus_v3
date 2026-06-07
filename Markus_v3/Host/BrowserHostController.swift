@@ -143,14 +143,22 @@ final class BrowserHostController: UIDocumentBrowserViewController {
             self?.dismissPresentedEditor()
         }
 
+        // ipad-expansion-13 — editor-session-scoped action handles (S-1).
+        // The host wires `closeEditor` to the same `onBack` the toolbar back
+        // button uses (S-3); `DocumentView.onAppear` wires `toggleMode` and
+        // `saveNow` (S-2). The provider exists only for the session lifetime.
+        let editorActions = EditorActions()
+        editorActions.closeEditor = onBack
+
         let editor = DocumentView(
             document: document,
             fileURL: url,
             detector: detector,
             onBack: onBack,
-            saveFailedRouter: router
+            saveFailedRouter: router,
+            editorActions: editorActions
         )
-        let host = UIHostingController(rootView: editor)
+        let host = EditorKeyCommandHostingController(rootView: editor, actions: editorActions)
         let nav = UINavigationController(rootViewController: host)
         nav.modalPresentationStyle = .fullScreen
         self.currentPresentedNav = nav
@@ -159,6 +167,10 @@ final class BrowserHostController: UIDocumentBrowserViewController {
 
         present(nav, animated: animated) { [weak self] in
             self?.didOpenDocument?(url)
+            // ipad-expansion-13 — make the key-command provider first
+            // responder so its `keyCommands` are consulted even before the
+            // text view becomes first responder in raw mode.
+            _ = host.becomeFirstResponder()
         }
     }
 
