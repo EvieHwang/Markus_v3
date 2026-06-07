@@ -1,0 +1,57 @@
+# Adversarial Review — Mac Catalyst Shell (mac-catalyst-shell-14)
+
+Reviewing requirements.md (`3de08dd7233fbc476a5df106f5b6e154b58af3ad`) and design.md (`6487dae95b31f152c344680df946ff089973613b`) — fresh review.
+
+Source ground truth read at review time: `Markus_v3/Host/EditorActions.swift`, `Markus_v3/Host/EditorKeyCommandHostingController.swift`, `Markus_v3/Host/BrowserHostController.swift` (`presentDocument(at:)`, `installEditorSession`, `dismissPresentedEditor`, `loadMarkdownDocument`), `Markus_v3/Resume/LaunchResumeBranch.swift`.
+
+This feature adds no new Shape component; it reuses this app's own established seams (`EditorActions`, `presentDocument(at:)`, `dismissPresentedEditor()`, `LaunchResumeBranch`). Per the review brief, security and failure-modes lenses over those established-seam surfaces are weighed at HIGH severity.
+
+---
+
+## Open findings
+
+### F-001 — Open-while-open ordering (C-2.4 vs. S-4) is self-contradictory and, as written in C-2.4, breaks the inherited DC-10 "failed open never tears down a healthy prior document" guarantee
+
+- **Severity:** HIGH
+- **Lens:** Failure modes / integrity (open/dismiss seam — this app's own reuse surface)
+- **Finding:** The design gives two *incompatible* orderings for the open-while-open transition, and the one C-2.4 actually prescribes destroys the prior document on a failed new open.
+  - **C-2.4 / the Resolved-deferred-question section prescribe teardown-FIRST:** "the prior session is torn down by the existing teardown (`dismissPresentedEditor()` — synchronous save … detector stop, session teardown) and **then** presents the newly chosen file through … `presentDocument(at:)`." That is relinquish-then-load.
+  - **S-4 prescribes relinquish-LAST:** "the prior document is only relinquished once the new document has successfully loaded, OR the user has accepted the equivalent of a close … a failed File → Open never leaves the user worse off than a canceled one."
+  These cannot both hold. The hedge in S-4 ("*if* the design chose to tear it down first") concedes the conflict but does not resolve it — it hands an unresolved ordering decision to the build step, which is exactly what a Stage-2 design must not leave open for a behavior that requirements pin.
+  - **Why the C-2.4 ordering is concretely wrong (verified against ground truth):** `dismissPresentedEditor()` (BrowserHostController.swift:200) unconditionally runs `saveSynchronously()` → detector stop → `activeDocument = nil` → `dismiss(animated:)`. It is atomic and takes no success signal. The DC-10 guarantee the requirements explicitly inherit ("a previously open document is not torn down by a failed open" — requirements §"Open of an unreadable/failing file"; design C-3.6) is implemented *solely* by `presentDocument(at:)` mutating `activeDocument` only on `.document(...)` success **within one call**. That protection does not span a preceding `dismissPresentedEditor()`. So if Open-while-open runs `dismissPresentedEditor()` first and the newly chosen file then fails its pipeline gates (unreadable / bad encoding / over the ceiling / moved between pick and read), the prior document has already been saved, dismissed, and nilled, and the new load returns `.alert(...)`. Observable result: the user is dropped to the browser with a "Couldn't open" alert and **no document** — strictly worse than the canceled-Open edge case (AC-3 cancel: "any currently open document is left untouched"), and a direct violation of the inherited DC-10 behavior that requirements assert for this very path.
+  - **Second concrete failure mode under the same ordering — double-present race:** `dismissPresentedEditor()` calls `dismiss(animated: true)` (asynchronous). C-2.4's "then present through `presentDocument(at:)`" calls `installEditorSession` → `present(nav, …)` on the same host. Presenting while the prior modal's dismissal is still in flight is the same double-present class UIKit rejects/warns on that feature-13 F-001 already flagged for this host (`present` on a controller whose `presentedViewController` is not yet cleared). C-2.4 specifies no completion-ordered sequencing, so a literal build of "teardown then present" risks a dropped or no-op present.
+- **Recommended action (architecture):** Resolve to a single, load-success-gated ordering and make it the one C-2.4 states (not a build-step choice). `loadMarkdownDocument(at:)` is already a pure static function returning `.document`/`.alert` with no state mutation, so the coherent composition is reachable from existing pieces: **(1)** load/validate the chosen URL first; **(2)** on `.alert`, surface `openPathAlert` and leave the current session fully intact (matches DC-10 / the cancel edge case); **(3)** only on `.document` success tear down the prior session and present the new one, sequencing the present *after* the dismiss completes (dismiss-completion handler, or present non-animated after teardown) to avoid the double-present race. Rewrite C-2.4 to state this ordering as the behavioral constraint and delete S-4's "if the design chose to tear it down first" hedge so requirements' inherited DC-10 guarantee holds on the open-while-open path. Note this needs a composed host operation (load → conditional teardown → present); the current `dismissPresentedEditor()` + `presentDocument(at:)` pair cannot be invoked teardown-first without breaking the guarantee.
+- **Status:** open
+
+---
+
+## Prescription feedback
+
+These concern HOW the design realizes a behavior (responder identity, the concrete composition mechanism) rather than WHAT the feature requires. Recorded, not filed as findings.
+
+- **Which responder validates menu enablement** (design Component A rationale / C-2.1 / S-1). The design says enablement "follow[s] the responder chain at validation time" and reflects "the absence of installed `EditorActions` handles," correctly leaving *which* responder answers `validate(_:)` / `canPerformAction` to the build step. Whether the document-scoped commands target a selector validated on `EditorKeyCommandHostingController` (which becomes first responder when the editor is presented — verified BrowserHostController.swift:173) or on another chain member is an implementation prescription, not a behavioral constraint. The behavioral claim it backs — "no moment where Save/Close/Toggle is enabled with no session or disabled with a session" (S-1) — is sound and observable via the responder chain, so no finding. Design section: Part 1, Component A + S-1.
+- **The concrete composition of the open-while-open sequence** (design C-2.4 / S-4). The *ordering* (load-success-gated) is a behavioral constraint and is the subject of F-001; but the exact mechanism for sequencing present-after-dismiss (dismiss-completion closure vs. non-animated present after teardown vs. a new combined host method) is an implementation choice bounded by the F-001 observable guard ("a failed Open never leaves the user worse off than a canceled one"). Implementation prescription, not behavioral constraint. Design section: Part 2, S-4.
+
+---
+
+## Cleared risk areas (checked, no finding)
+
+- **FM-1 / parallel-path risk for menu items.** C-1.4 / S-2 / X-4 route Save/Close/Toggle to the same `EditorActions` closures the ⌘P/⌘W/⌘S provider uses (verified `EditorActions` is a trigger-only struct of three optional closures; `EditorKeyCommandHostingController` is router-only) and Open to `presentDocument(at:)`. No second implementation introduced. Sound.
+- **FM-2 / second open or bookmark mechanism.** Component B (C-3.1–C-3.6, S-3) is panel-in / `presentDocument(at:)`-out; the open panel's only output is a URL into the existing funnel. `loadMarkdownDocument` (scope → size → coordinated read → strict UTF-8) and `didOpenDocument → recordLastOpened` are inherited intact. The OWASP security note is located and correct: the only new input is a user-chosen URL subjected to the identical gates a browser pick faces; no new attack surface. Sound.
+- **FM-3 / new persisted document identity on restoration.** Component D / C-5.1–C-5.6 / S-6 defer document choice entirely to `LaunchResumeBranch.resume(into:)` → `LastFileStore.resolveLastOpened()` (verified: bookmark/path resolve, fail-closed to browser with no error UI). OS owns window chrome; document identity is never stored or resolved by a new Mac-only store. Moved/deleted and first-launch edge cases inherit the existing fail-closed behavior. No new identity persistence. Sound.
+- **FM-6 / menu enablement vs. responder chain (disabled-shortcut no-op).** C-2.1/C-2.5/S-1 make document-scoped enablement track editor-session presence read through the responder chain — the same lifetime that governs `EditorActions` installation and first-responder status of the key-command controller. Disabling is structural (command unavailable at the browser), not a runtime nil-guard, so ⌘S/⌘W/⌘P at the browser is a no-op by construction. The fact enablement keys on (editor session present) IS observable at menu-validation time via the responder chain. Sound.
+- **FM-4 / no File → New.** C-1.1 / X-2 structurally exclude New (no programmatic create path reachable here). No disabled-or-no-op New item. Sound.
+- **WCAG full keyboard access + pointer-never-sole.** C-1.6 (every enabled menu item keyboard-reachable) and C-4.4 / S-5 (every pointer-fed action also reachable by ⌘P/menu and by tap/click; hover region coincides with the existing tap region; nothing hidden/disabled without a pointer) satisfy WCAG 2.1 AA at spec level. C-4.3 / C-4.5 preserve hit areas and gestures. Sound.
+- **FM-7 / no conflict, deletion, or save UI change.** X-3 / C-5.6 inherit the lifecycle unchanged; ⌘S / File → Save surface failures only through `SaveFailedAlertRouter` / `ActiveAlert.saveFailed` (verified the save bridge routes failures there). No save confirmation added. Sound.
+- **FM-8 / multi-window scope drift.** Out-of-scope is honored emphatically: C-5.2 single window, X-1/X-2 exclude tabs/multi-document model, C-2.4 keeps open-while-open single-window (no two-documents-live moment). No drift toward the deferred backlog-19 surface. Sound. (The C-2.4 *ordering* defect in F-001 is a correctness bug within the single-window model, not scope drift.)
+- **FM-9 / icon regression.** Component E / C-6.1–C-6.2 populate the empty Mac slots additively; iOS/iPad universal entries untouched (verified the catalog declares 12 empty `idiom:mac` slots and an iOS slot referencing `Markus-app-icon.png`). Sound.
+- **FM-10 / toggle stays on ⌘P, no width re-implementation.** C-1.2 / X-2 keep the toggle on ⌘P, do not wire ⌘/, and do not re-implement the ~700pt cap. Sound.
+
+---
+
+## Summary
+
+- Open findings: HIGH 1, MEDIUM 0, LOW 0.
+- `## Prescription feedback`: non-empty (2 entries) — responder identity for menu enablement; the concrete present-after-dismiss sequencing mechanism.
+- No scope-drift finding and no declaration-tension finding. The single-window / no-new-surface declaration is honored throughout; the one finding is an internal correctness/integrity defect, not scope drift.
+- Most serious finding: **F-001 (HIGH)** — the open-while-open transition is specified two contradictory ways; the ordering C-2.4 actually prescribes (teardown-then-present, built on the atomic unconditional `dismissPresentedEditor()`) destroys the prior document on a failed new open, violating the DC-10 guarantee requirements explicitly inherit. Resolve to a load-success-gated ordering and remove S-4's hedge.
