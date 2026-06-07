@@ -11,15 +11,38 @@ into `Markus_v3Tests/` (Swift Testing) and `Markus_v3UITests/` (XCUITest) when
 picking up each task, adjusting symbol / identifier / menu-title names to match the
 live host.
 
-The **Task ID column is intentionally absent** at this stage: the DAG does not yet
-exist. `/dag` applies the authoritative task → test mapping in the next stage (as it
-did for feature 13). Tests are written to **fail / be unimplemented** until the
-feature is built: the Swift Testing files reference the as-yet-unbuilt seams
-(`CatalystMenuBuilder`, `MacOpenCommand` funnel, the composed open-while-open host
-operation, `MacRestorationBridge`, the populated Mac icon slots, the
-`PointerAffordanceLayer`), and the XCUITest files assert Catalyst behavior (a real
-menu bar, the system open panel, scene restoration, pointer hover) that does not
-exist before the build.
+The **Task ID column is now populated** (was a placeholder at the `/tests` stage).
+`/dag` has tagged each test with the task that must make it pass, per `dag.md`:
+
+- **T-001** — Enable the Mac (Catalyst) destination on the target. Owns the
+  Catalyst-destination XCUITest harness launch (`MacMenuBarUITests.setUpWithError`,
+  `MacPointerUITests.setUpWithError`): the Catalyst run destination the rest of the
+  feature's UI tests require exists only once this task lands.
+- **T-002** — Catalyst menu bar (Component A): structure / enablement / routing.
+  Owns the `MenuBarRoutingTests.swift` suite and the menu/enablement cases of
+  `MacMenuBarUITests.swift`.
+- **T-003** — File → Open adapter (Component B base): panel → `presentDocument`.
+  Owns the panel/funnel/cancel/fail/non-md/resume-target/save-no-UI cases of
+  `MacOpenCommandTests.swift` and the open cases of `MacMenuBarUITests.swift`.
+- **T-004** — Open-while-open composed host operation (Component B, F-001):
+  load-success-gated. Owns the `openWhileOpen_*` cases of `MacOpenCommandTests.swift`
+  and the open-while-open cases of `MacMenuBarUITests.swift`.
+- **T-005** — Pointer / hover affordance layer (Component C). Owns
+  `PointerAffordanceTests.swift` and `MacPointerUITests.swift`.
+- **T-006** — Mac scene-restoration bridge (Component D). Owns the `restoration_*`
+  cases of `MacRestorationTests.swift` and the relaunch/first-launch/moved-deleted
+  cases of `MacMenuBarUITests.swift`.
+- **T-007** — Mac app-icon slots (Component E). Owns the `macIconSlots_*` cases of
+  `MacRestorationTests.swift`.
+
+T-001 is Wave 1 (root); T-002/T-003/T-005/T-006/T-007 are Wave 2 (parallel);
+T-004 is Wave 3 (depends on T-003). Tests are written to **fail / be
+unimplemented** until each tagged task lands: the Swift Testing files reference the
+as-yet-unbuilt seams (`CatalystMenuBuilder`, `MacOpenCommand` funnel, the composed
+open-while-open host operation, `MacRestorationBridge`, the populated Mac icon
+slots, the `PointerAffordanceLayer`), and the XCUITest files assert Catalyst
+behavior (a real menu bar, the system open panel, scene restoration, pointer
+hover) that does not exist before the build.
 
 ## Test files
 
@@ -36,100 +59,101 @@ exist before the build.
 
 ### Part 1 — Mac menu bar (US-1 / US-2)
 
-| Requirement | Test(s) |
-|-------------|---------|
-| AC-1.1 (File = Open/Save/Close, ⌘ equivalents, no New) | `MenuBarRoutingTests.fileMenu_containsOpenSaveClose_noNew`; `MacMenuBarUITests.test_fileMenu_containsOpenSaveClose_noNew` |
-| AC-1.2 / FM-10 (View = Toggle Preview on ⌘P, stable title) | `MenuBarRoutingTests.viewMenu_containsStableTitledTogglePreview_onCmdP`; `MacMenuBarUITests.test_viewMenu_containsStableTitledTogglePreview` |
-| AC-1.3 / AC-2.4 (Edit = system-standard items, defers to responder) | `MenuBarRoutingTests.editMenu_isSystemStandardOnly`, `...editItems_followSystemEnablement`; `MacMenuBarUITests.test_editMenu_containsSystemStandardItems` |
-| AC-1.4 / FM-1 (menu Save drives saveNow→triggerSave) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow`; `MacMenuBarUITests.test_menuSave_showsNoNewConfirmationUI` |
-| AC-1.4 / FM-1 (menu Close drives closeEditor→dismiss) | `MenuBarRoutingTests.closeMenuItem_drivesExistingCloseFlow`; `MacMenuBarUITests.test_menuClose_returnsToBrowser_likeCmdW` |
-| AC-1.4 / FM-1 (menu Toggle Preview drives toggleMode) | `MenuBarRoutingTests.togglePreviewMenuItem_drivesExistingToggleFlow`; `MacMenuBarUITests.test_menuTogglePreview_matchesCmdP` |
-| AC-1.4 / S-2 (menu Open routes to presentDocument) | `MenuBarRoutingTests.openMenuItem_routesToPresentDocument`; `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument` |
-| AC-1.5 (shown shortcut == firing binding; menu == shortcut) | `MenuBarRoutingTests.shownShortcutEqualsFiringBinding`, `...saveMenuItem_drivesExistingSaveFlow`, `...closeMenuItem_drivesExistingCloseFlow`, `...togglePreviewMenuItem_drivesExistingToggleFlow`; `MacMenuBarUITests.test_menuTogglePreview_matchesCmdP` |
-| AC-1.6 (full keyboard access; no pointer-only action) | `MenuBarRoutingTests.everyEnabledItemIsKeyboardReachable` |
-| AC-2.1 / S-1 / FM-6 (doc-scoped disabled with no document) | `MenuBarRoutingTests.documentScopedItems_disabledWithNoDocument`, `...enablementAndLiveHandleAreTheSameFact`; `MacMenuBarUITests.test_documentScopedItems_disabledAtBrowser` |
-| AC-2.2 (doc-scoped enabled with a document) | `MenuBarRoutingTests.documentScopedItems_enabledWithDocument`, `...enablementAndLiveHandleAreTheSameFact`; `MacMenuBarUITests.test_documentScopedItems_enabledWithDocument` |
-| AC-2.3 (Open always enabled) | `MenuBarRoutingTests.openIsAlwaysEnabled`; `MacMenuBarUITests.test_documentScopedItems_disabledAtBrowser` (Open enabled assertion) |
-| AC-2.4 (Edit items follow system enablement) | `MenuBarRoutingTests.editItems_followSystemEnablement` |
-| Disabled-shortcut edge / C-2.5 / FM-6 (⌘S/⌘W/⌘P at browser = no-op) | `MenuBarRoutingTests.shortcuts_atBrowser_areStructuralNoOps`; `MacMenuBarUITests.test_disabledShortcutsAtBrowser_areStructuralNoOps` |
+| Requirement | Test(s) | Task ID |
+|-------------|---------|---------|
+| AC-1.1 (File = Open/Save/Close, ⌘ equivalents, no New) | `MenuBarRoutingTests.fileMenu_containsOpenSaveClose_noNew`; `MacMenuBarUITests.test_fileMenu_containsOpenSaveClose_noNew` | T-002 |
+| AC-1.2 / FM-10 (View = Toggle Preview on ⌘P, stable title) | `MenuBarRoutingTests.viewMenu_containsStableTitledTogglePreview_onCmdP`; `MacMenuBarUITests.test_viewMenu_containsStableTitledTogglePreview` | T-002 |
+| AC-1.3 / AC-2.4 (Edit = system-standard items, defers to responder) | `MenuBarRoutingTests.editMenu_isSystemStandardOnly`, `...editItems_followSystemEnablement`; `MacMenuBarUITests.test_editMenu_containsSystemStandardItems` | T-002 |
+| AC-1.4 / FM-1 (menu Save drives saveNow→triggerSave) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow`; `MacMenuBarUITests.test_menuSave_showsNoNewConfirmationUI` | T-002 |
+| AC-1.4 / FM-1 (menu Close drives closeEditor→dismiss) | `MenuBarRoutingTests.closeMenuItem_drivesExistingCloseFlow`; `MacMenuBarUITests.test_menuClose_returnsToBrowser_likeCmdW` | T-002 |
+| AC-1.4 / FM-1 (menu Toggle Preview drives toggleMode) | `MenuBarRoutingTests.togglePreviewMenuItem_drivesExistingToggleFlow`; `MacMenuBarUITests.test_menuTogglePreview_matchesCmdP` | T-002 |
+| AC-1.4 / S-2 (menu Open routes to presentDocument) | `MenuBarRoutingTests.openMenuItem_routesToPresentDocument`; `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument` | T-002 (routing); T-003 (funnel) |
+| AC-1.5 (shown shortcut == firing binding; menu == shortcut) | `MenuBarRoutingTests.shownShortcutEqualsFiringBinding`, `...saveMenuItem_drivesExistingSaveFlow`, `...closeMenuItem_drivesExistingCloseFlow`, `...togglePreviewMenuItem_drivesExistingToggleFlow`; `MacMenuBarUITests.test_menuTogglePreview_matchesCmdP` | T-002 |
+| AC-1.6 (full keyboard access; no pointer-only action) | `MenuBarRoutingTests.everyEnabledItemIsKeyboardReachable` | T-002 |
+| AC-2.1 / S-1 / FM-6 (doc-scoped disabled with no document) | `MenuBarRoutingTests.documentScopedItems_disabledWithNoDocument`, `...enablementAndLiveHandleAreTheSameFact`; `MacMenuBarUITests.test_documentScopedItems_disabledAtBrowser` | T-002 |
+| AC-2.2 (doc-scoped enabled with a document) | `MenuBarRoutingTests.documentScopedItems_enabledWithDocument`, `...enablementAndLiveHandleAreTheSameFact`; `MacMenuBarUITests.test_documentScopedItems_enabledWithDocument` | T-002 |
+| AC-2.3 (Open always enabled) | `MenuBarRoutingTests.openIsAlwaysEnabled`; `MacMenuBarUITests.test_documentScopedItems_disabledAtBrowser` (Open enabled assertion) | T-002 |
+| AC-2.4 (Edit items follow system enablement) | `MenuBarRoutingTests.editItems_followSystemEnablement` | T-002 |
+| Disabled-shortcut edge / C-2.5 / FM-6 (⌘S/⌘W/⌘P at browser = no-op) | `MenuBarRoutingTests.shortcuts_atBrowser_areStructuralNoOps`; `MacMenuBarUITests.test_disabledShortcutsAtBrowser_areStructuralNoOps` | T-002 |
 
 ### Part 2 — File → Open and open-while-open (US-3 / AC-3.5)
 
-| Requirement | Test(s) |
-|-------------|---------|
-| AC-3.1 (Open presents the system panel) | `MacOpenCommandTests.open_presentsSystemPanel`; `MacMenuBarUITests.test_fileOpen_presentsSystemPanel` |
-| AC-3.2 (panel constrained to readableContentTypes) | `MacOpenCommandTests.open_panelConstrainedToMarkdownTypes` |
-| AC-3.3 / S-3 / FM-2 (chosen file funnels through presentDocument) | `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument`; `MacMenuBarUITests.test_fileOpen_opensChosenMarkdownFile` |
-| AC-3.4 (opened file becomes the resume target) | `MacOpenCommandTests.open_success_recordsAsResumeTarget` |
-| AC-3.5 / FM-8 (open replaces the single current document) | `MacOpenCommandTests.openWhileOpen_success_replacesSingleDocument`, `...openWhileOpen_addsNoMultiDocumentState`; `MacMenuBarUITests.test_openWhileOpen_success_replacesSingleDocument` |
-| **Open-while-open ordering (C-2.4 / S-4 — F-001): load-first** | `MacOpenCommandTests.openWhileOpen_success_loadsBeforeTeardown` |
-| **Failed new open preserves prior (DC-10 — the F-001 case)** | `MacOpenCommandTests.openWhileOpen_failedNewOpen_preservesPrior`, `...openWhileOpen_failedNewOpen_noWorseThanCancel`; `MacMenuBarUITests.test_openWhileOpen_failedNewOpen_preservesPriorDocument` |
-| Open cancel edge (nothing opens, current untouched) | `MacOpenCommandTests.open_canceled_leavesEverythingUntouched`; `MacMenuBarUITests.test_openCanceled_leavesCurrentDocumentUntouched` |
-| Open failing edge / FM-2 (existing alert, scope released, prior preserved) | `MacOpenCommandTests.open_failingFile_surfacesExistingAlertAndReleasesScope`, `...openWhileOpen_failedNewOpen_preservesPrior` |
-| Open non-md edge (existing gates, no new handling) | `MacOpenCommandTests.open_nonMarkdownFile_handledByExistingGates` |
-| FM-7 (File → Save adds no new save/conflict UI) | `MacOpenCommandTests.menuSave_noNewUI_failureViaExistingRouter`; `MacMenuBarUITests.test_menuSave_showsNoNewConfirmationUI` |
+| Requirement | Test(s) | Task ID |
+|-------------|---------|---------|
+| AC-3.1 (Open presents the system panel) | `MacOpenCommandTests.open_presentsSystemPanel`; `MacMenuBarUITests.test_fileOpen_presentsSystemPanel` | T-003 |
+| AC-3.2 (panel constrained to readableContentTypes) | `MacOpenCommandTests.open_panelConstrainedToMarkdownTypes` | T-003 |
+| AC-3.3 / S-3 / FM-2 (chosen file funnels through presentDocument) | `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument`; `MacMenuBarUITests.test_fileOpen_opensChosenMarkdownFile` | T-003 |
+| AC-3.4 (opened file becomes the resume target) | `MacOpenCommandTests.open_success_recordsAsResumeTarget` | T-003 |
+| AC-3.5 / FM-8 (open replaces the single current document) | `MacOpenCommandTests.openWhileOpen_success_replacesSingleDocument`, `...openWhileOpen_addsNoMultiDocumentState`; `MacMenuBarUITests.test_openWhileOpen_success_replacesSingleDocument` | T-004 |
+| **Open-while-open ordering (C-2.4 / S-4 — F-001): load-first** | `MacOpenCommandTests.openWhileOpen_success_loadsBeforeTeardown` | T-004 |
+| **Failed new open preserves prior (DC-10 — the F-001 case)** | `MacOpenCommandTests.openWhileOpen_failedNewOpen_preservesPrior`, `...openWhileOpen_failedNewOpen_noWorseThanCancel`; `MacMenuBarUITests.test_openWhileOpen_failedNewOpen_preservesPriorDocument` | T-004 |
+| Open cancel edge (nothing opens, current untouched) | `MacOpenCommandTests.open_canceled_leavesEverythingUntouched`; `MacMenuBarUITests.test_openCanceled_leavesCurrentDocumentUntouched` | T-003 |
+| Open failing edge / FM-2 (existing alert, scope released, prior preserved) | `MacOpenCommandTests.open_failingFile_surfacesExistingAlertAndReleasesScope`, `...openWhileOpen_failedNewOpen_preservesPrior` | T-003 (failing open); T-004 (prior preserved on open-while-open) |
+| Open non-md edge (existing gates, no new handling) | `MacOpenCommandTests.open_nonMarkdownFile_handledByExistingGates` | T-003 |
+| FM-7 (File → Save adds no new save/conflict UI) | `MacOpenCommandTests.menuSave_noNewUI_failureViaExistingRouter`; `MacMenuBarUITests.test_menuSave_showsNoNewConfirmationUI` | T-003 (unit, save funnel under File menu); T-002 (UITest, menu Save no new UI) |
 
 ### Part 3 — Pointer / hover feedback (US-4)
 
-| Requirement | Test(s) |
-|-------------|---------|
-| AC-4.1 (tap-to-edit feedback; click = existing rendered→raw) | `PointerAffordanceTests.tapToEditSurface_showsFeedback_clickPerformsExistingTransition`; `MacPointerUITests.test_tapToEditSurface_clickPerformsExistingTransition` |
-| AC-4.2 (eye control feedback; click = existing transition) | `PointerAffordanceTests.eyeControl_showsFeedback_clickPerformsExistingTransition`; `MacPointerUITests.test_eyeControl_clickPerformsExistingTransition` |
-| AC-4.3 / FM-5 (no action/hit-area/gesture change; click == tap) | `PointerAffordanceTests.clickActionIdenticalToTap_noGestureChanged`; `MacPointerUITests.test_clickAndTap_produceSameTransition`, `...test_existingGesturesStillWork_withPointerLayer` |
-| AC-4.4 / FM-5 (pointer never the sole affordance) | `PointerAffordanceTests.everyPointerFedAction_alsoReachableWithoutPointer`; `MacPointerUITests.test_modeSwitch_reachableWithoutPointer` |
-| No-pointer edge / C-4.5 (never triggered; nothing hidden/disabled) | `PointerAffordanceTests.noPointerDevice_feedbackNeverTriggered_behaviorUnchanged`; `MacPointerUITests.test_noPointerDevice_tapStillWorks_nothingHidden` |
+| Requirement | Test(s) | Task ID |
+|-------------|---------|---------|
+| AC-4.1 (tap-to-edit feedback; click = existing rendered→raw) | `PointerAffordanceTests.tapToEditSurface_showsFeedback_clickPerformsExistingTransition`; `MacPointerUITests.test_tapToEditSurface_clickPerformsExistingTransition` | T-005 |
+| AC-4.2 (eye control feedback; click = existing transition) | `PointerAffordanceTests.eyeControl_showsFeedback_clickPerformsExistingTransition`; `MacPointerUITests.test_eyeControl_clickPerformsExistingTransition` | T-005 |
+| AC-4.3 / FM-5 (no action/hit-area/gesture change; click == tap) | `PointerAffordanceTests.clickActionIdenticalToTap_noGestureChanged`; `MacPointerUITests.test_clickAndTap_produceSameTransition`, `...test_existingGesturesStillWork_withPointerLayer` | T-005 |
+| AC-4.4 / FM-5 (pointer never the sole affordance) | `PointerAffordanceTests.everyPointerFedAction_alsoReachableWithoutPointer`; `MacPointerUITests.test_modeSwitch_reachableWithoutPointer` | T-005 |
+| No-pointer edge / C-4.5 (never triggered; nothing hidden/disabled) | `PointerAffordanceTests.noPointerDevice_feedbackNeverTriggered_behaviorUnchanged`; `MacPointerUITests.test_noPointerDevice_tapStillWorks_nothingHidden` | T-005 |
 
 ### Part 4 — Single-window state restoration (US-5)
 
-| Requirement | Test(s) |
-|-------------|---------|
-| AC-5.1 / S-6 / FM-3 (restores via existing resume path; no new identity store) | `MacRestorationTests.restoration_restoresViaExistingResumePath`; `MacMenuBarUITests.test_relaunch_restoresPreviouslyOpenDocument` |
-| AC-5.2 / FM-8 (single window/document, no tabs) | `MacRestorationTests.restoration_singleWindow`; `MacMenuBarUITests.test_relaunch_restoresPreviouslyOpenDocument` (windows == 1) |
-| AC-5.3 (same file & resolution as iOS/iPad resume) | `MacRestorationTests.restoration_consistentWithIOSResume` |
-| Moved/deleted edge / C-5.4 (bookmark retarget; else browser, no error) | `MacRestorationTests.restoration_movedFile_retargetsViaBookmark`, `...restoration_deletedFile_landsOnBrowserNoError`; `MacMenuBarUITests.test_movedOrDeletedPriorDocument_landsOnBrowserNoError` |
-| First-launch edge / C-5.5 (resolves nothing → browser; no placeholder) | `MacRestorationTests.restoration_firstLaunch_landsOnBrowser`; `MacMenuBarUITests.test_firstLaunch_landsOnBrowser` |
-| Lifecycle edge / C-5.6 / FM-7 (restored doc enters unchanged lifecycle) | `MacRestorationTests.restoration_restoredDocument_entersUnchangedLifecycle` |
+| Requirement | Test(s) | Task ID |
+|-------------|---------|---------|
+| AC-5.1 / S-6 / FM-3 (restores via existing resume path; no new identity store) | `MacRestorationTests.restoration_restoresViaExistingResumePath`; `MacMenuBarUITests.test_relaunch_restoresPreviouslyOpenDocument` | T-006 |
+| AC-5.2 / FM-8 (single window/document, no tabs) | `MacRestorationTests.restoration_singleWindow`; `MacMenuBarUITests.test_relaunch_restoresPreviouslyOpenDocument` (windows == 1) | T-006 |
+| AC-5.3 (same file & resolution as iOS/iPad resume) | `MacRestorationTests.restoration_consistentWithIOSResume` | T-006 |
+| Moved/deleted edge / C-5.4 (bookmark retarget; else browser, no error) | `MacRestorationTests.restoration_movedFile_retargetsViaBookmark`, `...restoration_deletedFile_landsOnBrowserNoError`; `MacMenuBarUITests.test_movedOrDeletedPriorDocument_landsOnBrowserNoError` | T-006 |
+| First-launch edge / C-5.5 (resolves nothing → browser; no placeholder) | `MacRestorationTests.restoration_firstLaunch_landsOnBrowser`; `MacMenuBarUITests.test_firstLaunch_landsOnBrowser` | T-006 |
+| Lifecycle edge / C-5.6 / FM-7 (restored doc enters unchanged lifecycle) | `MacRestorationTests.restoration_restoredDocument_entersUnchangedLifecycle` | T-006 |
 
 ### Part 5 — Mac app-icon assets (US-6)
 
-| Requirement | Test(s) |
-|-------------|---------|
-| AC-6.1 / C-6.1 (Mac slots populated; no empty/placeholder) | `MacRestorationTests.macIconSlots_arePopulated` |
-| AC-6.2 / C-6.2 / FM-9 (iOS/iPad icon not regressed; Mac slots additive) | `MacRestorationTests.macIconSlots_doNotRegressIOSIcon` |
+| Requirement | Test(s) | Task ID |
+|-------------|---------|---------|
+| AC-6.1 / C-6.1 (Mac slots populated; no empty/placeholder) | `MacRestorationTests.macIconSlots_arePopulated` | T-007 |
+| AC-6.2 / C-6.2 / FM-9 (iOS/iPad icon not regressed; Mac slots additive) | `MacRestorationTests.macIconSlots_doNotRegressIOSIcon` | T-007 |
 
 ### Failure modes → tests
 
-| FM | Test(s) |
-|----|---------|
-| FM-1 (no parallel save/close/toggle/open implementation) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow`, `...closeMenuItem_drivesExistingCloseFlow`, `...togglePreviewMenuItem_drivesExistingToggleFlow`, `...openMenuItem_routesToPresentDocument` |
-| FM-2 (no second open/decode/read/bookmark mechanism) | `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument`, `...open_failingFile_surfacesExistingAlertAndReleasesScope`, `...open_nonMarkdownFile_handledByExistingGates` |
-| FM-3 (no new identity store / file-missing recovery dialog) | `MacRestorationTests.restoration_restoresViaExistingResumePath`, `...restoration_movedFile_retargetsViaBookmark`, `...restoration_deletedFile_landsOnBrowserNoError`; `MacMenuBarUITests.test_movedOrDeletedPriorDocument_landsOnBrowserNoError` |
-| FM-4 (no File → New / ⌘N) | `MenuBarRoutingTests.fileMenu_containsOpenSaveClose_noNew`; `MacMenuBarUITests.test_fileMenu_containsOpenSaveClose_noNew` |
-| FM-5 (pointer never sole / no hit-area or gesture change / nothing hidden) | `PointerAffordanceTests.clickActionIdenticalToTap_noGestureChanged`, `...everyPointerFedAction_alsoReachableWithoutPointer`, `...noPointerDevice_feedbackNeverTriggered_behaviorUnchanged`; `MacPointerUITests.test_existingGesturesStillWork_withPointerLayer` |
-| FM-6 (no nil-handle invocation; disabled when no document; no crash) | `MenuBarRoutingTests.documentScopedItems_disabledWithNoDocument`, `...shortcuts_atBrowser_areStructuralNoOps`; `MacMenuBarUITests.test_disabledShortcutsAtBrowser_areStructuralNoOps` |
-| FM-7 (no conflict/deletion/save UI change) | `MacOpenCommandTests.menuSave_noNewUI_failureViaExistingRouter`; `MacRestorationTests.restoration_restoredDocument_entersUnchangedLifecycle`; `MacMenuBarUITests.test_menuSave_showsNoNewConfirmationUI` |
-| FM-8 (single window; no multi-document model; no two-docs-live) | `MacOpenCommandTests.openWhileOpen_success_replacesSingleDocument`, `...openWhileOpen_addsNoMultiDocumentState`; `MacRestorationTests.restoration_singleWindow`; `MacMenuBarUITests.test_openWhileOpen_success_replacesSingleDocument` |
-| FM-9 (no iOS/iPad icon regression) | `MacRestorationTests.macIconSlots_doNotRegressIOSIcon` |
-| FM-10 (toggle stays on ⌘P; ⌘/ not wired) | `MenuBarRoutingTests.viewMenu_containsStableTitledTogglePreview_onCmdP` |
+| FM | Test(s) | Task ID |
+|----|---------|---------|
+| FM-1 (no parallel save/close/toggle/open implementation) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow`, `...closeMenuItem_drivesExistingCloseFlow`, `...togglePreviewMenuItem_drivesExistingToggleFlow`, `...openMenuItem_routesToPresentDocument` | T-002 |
+| FM-2 (no second open/decode/read/bookmark mechanism) | `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument`, `...open_failingFile_surfacesExistingAlertAndReleasesScope`, `...open_nonMarkdownFile_handledByExistingGates` | T-003 |
+| FM-3 (no new identity store / file-missing recovery dialog) | `MacRestorationTests.restoration_restoresViaExistingResumePath`, `...restoration_movedFile_retargetsViaBookmark`, `...restoration_deletedFile_landsOnBrowserNoError`; `MacMenuBarUITests.test_movedOrDeletedPriorDocument_landsOnBrowserNoError` | T-006 |
+| FM-4 (no File → New / ⌘N) | `MenuBarRoutingTests.fileMenu_containsOpenSaveClose_noNew`; `MacMenuBarUITests.test_fileMenu_containsOpenSaveClose_noNew` | T-002 |
+| FM-5 (pointer never sole / no hit-area or gesture change / nothing hidden) | `PointerAffordanceTests.clickActionIdenticalToTap_noGestureChanged`, `...everyPointerFedAction_alsoReachableWithoutPointer`, `...noPointerDevice_feedbackNeverTriggered_behaviorUnchanged`; `MacPointerUITests.test_existingGesturesStillWork_withPointerLayer` | T-005 |
+| FM-6 (no nil-handle invocation; disabled when no document; no crash) | `MenuBarRoutingTests.documentScopedItems_disabledWithNoDocument`, `...shortcuts_atBrowser_areStructuralNoOps`; `MacMenuBarUITests.test_disabledShortcutsAtBrowser_areStructuralNoOps` | T-002 |
+| FM-7 (no conflict/deletion/save UI change) | `MacOpenCommandTests.menuSave_noNewUI_failureViaExistingRouter`; `MacRestorationTests.restoration_restoredDocument_entersUnchangedLifecycle`; `MacMenuBarUITests.test_menuSave_showsNoNewConfirmationUI` | T-003 (menuSave unit); T-006 (restored lifecycle); T-002 (menu Save UITest) |
+| FM-8 (single window; no multi-document model; no two-docs-live) | `MacOpenCommandTests.openWhileOpen_success_replacesSingleDocument`, `...openWhileOpen_addsNoMultiDocumentState`; `MacRestorationTests.restoration_singleWindow`; `MacMenuBarUITests.test_openWhileOpen_success_replacesSingleDocument` | T-004 (open-while-open single window); T-006 (restoration single window) |
+| FM-9 (no iOS/iPad icon regression) | `MacRestorationTests.macIconSlots_doNotRegressIOSIcon` | T-007 |
+| FM-10 (toggle stays on ⌘P; ⌘/ not wired) | `MenuBarRoutingTests.viewMenu_containsStableTitledTogglePreview_onCmdP` | T-002 |
 
 ### Design seams → tests
 
-| Seam / contract | Test(s) |
-|-----------------|---------|
-| S-1 (enablement tracks editor-session presence via the responder chain; disabled-shortcut is structural) | `MenuBarRoutingTests.documentScopedItems_disabledWithNoDocument`, `...documentScopedItems_enabledWithDocument`, `...enablementAndLiveHandleAreTheSameFact`, `...shortcuts_atBrowser_areStructuralNoOps`; `MacMenuBarUITests.test_documentScopedItems_disabledAtBrowser`, `...test_documentScopedItems_enabledWithDocument` |
-| S-2 (menu actions reach the same EditorActions / presentDocument seams) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow`, `...closeMenuItem_drivesExistingCloseFlow`, `...togglePreviewMenuItem_drivesExistingToggleFlow`, `...openMenuItem_routesToPresentDocument` |
-| S-3 (open panel's only output is a URL into the existing funnel) | `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument` (`panelOutputWasURLOnly`) |
-| S-4 (open-while-open load-success-gated; prior relinquished only after new load succeeds; failed open never tears down prior — DC-10) | `MacOpenCommandTests.openWhileOpen_success_loadsBeforeTeardown`, `...openWhileOpen_failedNewOpen_preservesPrior`, `...openWhileOpen_failedNewOpen_noWorseThanCancel`; `MacMenuBarUITests.test_openWhileOpen_failedNewOpen_preservesPriorDocument` |
-| S-5 (pointer feedback layered over existing hit regions; clickable == tappable) | `PointerAffordanceTests.clickableRegionEqualsTappableRegion`, `...clickActionIdenticalToTap_noGestureChanged` |
-| S-6 (restoration entry hands control to the existing resume decision; no new persisted identity) | `MacRestorationTests.restoration_restoresViaExistingResumePath`, `...restoration_consistentWithIOSResume`, `...restoration_deletedFile_landsOnBrowserNoError` |
-| C-2.4 (open-while-open replaces single document, load-success-gated) | `MacOpenCommandTests.openWhileOpen_success_replacesSingleDocument`, `...openWhileOpen_addsNoMultiDocumentState`, `...openWhileOpen_failedNewOpen_preservesPrior` |
-| C-3.x (Component B adapter: panel → presentDocument; success/cancel/failure semantics inherited) | `MacOpenCommandTests` (all of `MacOpenPanelTests`, `MacOpenEdgeCaseTests`) |
-| C-4.x (Component C: feedback on both targets; click == tap; never sole; inert with no pointer) | `PointerAffordanceTests` (all suites); `MacPointerUITests` (all cases) |
-| C-5.x (Component D: defers to resume; single window; fail-closed; unchanged lifecycle) | `MacRestorationTests` (all of `MacRestorationTests`, `MacRestorationEdgeTests`) |
-| C-6.x (Component E: populated Mac slots; iOS/iPad additive) | `MacRestorationTests.macIconSlots_arePopulated`, `...macIconSlots_doNotRegressIOSIcon` |
-| X-1 / X-2 (no new product surface; out-of-scope structurally excluded) | `MenuBarRoutingTests.fileMenu_containsOpenSaveClose_noNew` (no New), `...editMenu_isSystemStandardOnly` (no custom Edit), `...viewMenu_containsStableTitledTogglePreview_onCmdP` (⌘P not ⌘/); `MacOpenCommandTests.openWhileOpen_addsNoMultiDocumentState` (no multi-document) |
-| X-3 (existing behavior preserved unchanged) | `MacOpenCommandTests.menuSave_noNewUI_failureViaExistingRouter`; `MacRestorationTests.restoration_restoredDocument_entersUnchangedLifecycle` |
-| X-4 (one implementation per action across all entry points) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow` (menu == ⌘S), `...closeMenuItem_drivesExistingCloseFlow` (menu == ⌘W), `...togglePreviewMenuItem_drivesExistingToggleFlow` (menu == ⌘P); `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument` (open == browser pick) |
+| Seam / contract | Test(s) | Task ID |
+|-----------------|---------|---------|
+| S-1 (enablement tracks editor-session presence via the responder chain; disabled-shortcut is structural) | `MenuBarRoutingTests.documentScopedItems_disabledWithNoDocument`, `...documentScopedItems_enabledWithDocument`, `...enablementAndLiveHandleAreTheSameFact`, `...shortcuts_atBrowser_areStructuralNoOps`; `MacMenuBarUITests.test_documentScopedItems_disabledAtBrowser`, `...test_documentScopedItems_enabledWithDocument` | T-002 |
+| S-2 (menu actions reach the same EditorActions / presentDocument seams) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow`, `...closeMenuItem_drivesExistingCloseFlow`, `...togglePreviewMenuItem_drivesExistingToggleFlow`, `...openMenuItem_routesToPresentDocument` | T-002 |
+| S-3 (open panel's only output is a URL into the existing funnel) | `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument` (`panelOutputWasURLOnly`) | T-003 |
+| S-4 (open-while-open load-success-gated; prior relinquished only after new load succeeds; failed open never tears down prior — DC-10) | `MacOpenCommandTests.openWhileOpen_success_loadsBeforeTeardown`, `...openWhileOpen_failedNewOpen_preservesPrior`, `...openWhileOpen_failedNewOpen_noWorseThanCancel`; `MacMenuBarUITests.test_openWhileOpen_failedNewOpen_preservesPriorDocument` | T-004 |
+| S-5 (pointer feedback layered over existing hit regions; clickable == tappable) | `PointerAffordanceTests.clickableRegionEqualsTappableRegion`, `...clickActionIdenticalToTap_noGestureChanged` | T-005 |
+| S-6 (restoration entry hands control to the existing resume decision; no new persisted identity) | `MacRestorationTests.restoration_restoresViaExistingResumePath`, `...restoration_consistentWithIOSResume`, `...restoration_deletedFile_landsOnBrowserNoError` | T-006 |
+| C-2.4 (open-while-open replaces single document, load-success-gated) | `MacOpenCommandTests.openWhileOpen_success_replacesSingleDocument`, `...openWhileOpen_addsNoMultiDocumentState`, `...openWhileOpen_failedNewOpen_preservesPrior` | T-004 |
+| C-3.x (Component B adapter: panel → presentDocument; success/cancel/failure semantics inherited) | `MacOpenCommandTests` (all of `MacOpenPanelTests`, `MacOpenEdgeCaseTests`) | T-003 |
+| C-4.x (Component C: feedback on both targets; click == tap; never sole; inert with no pointer) | `PointerAffordanceTests` (all suites); `MacPointerUITests` (all cases) | T-005 |
+| C-5.x (Component D: defers to resume; single window; fail-closed; unchanged lifecycle) | `MacRestorationTests` (all of `MacRestorationTests`, `MacRestorationEdgeTests`) | T-006 |
+| C-6.x (Component E: populated Mac slots; iOS/iPad additive) | `MacRestorationTests.macIconSlots_arePopulated`, `...macIconSlots_doNotRegressIOSIcon` | T-007 |
+| Catalyst destination (run-target the UITests require; inherited behavior unchanged) | XCUITest harness launch on the Catalyst destination — `MacMenuBarUITests.setUpWithError`, `MacPointerUITests.setUpWithError` | T-001 |
+| X-1 / X-2 (no new product surface; out-of-scope structurally excluded) | `MenuBarRoutingTests.fileMenu_containsOpenSaveClose_noNew` (no New), `...editMenu_isSystemStandardOnly` (no custom Edit), `...viewMenu_containsStableTitledTogglePreview_onCmdP` (⌘P not ⌘/); `MacOpenCommandTests.openWhileOpen_addsNoMultiDocumentState` (no multi-document) | T-002 (menu); T-004 (no multi-document) |
+| X-3 (existing behavior preserved unchanged) | `MacOpenCommandTests.menuSave_noNewUI_failureViaExistingRouter`; `MacRestorationTests.restoration_restoredDocument_entersUnchangedLifecycle` | T-003 (menuSave); T-006 (restored lifecycle) |
+| X-4 (one implementation per action across all entry points) | `MenuBarRoutingTests.saveMenuItem_drivesExistingSaveFlow` (menu == ⌘S), `...closeMenuItem_drivesExistingCloseFlow` (menu == ⌘W), `...togglePreviewMenuItem_drivesExistingToggleFlow` (menu == ⌘P); `MacOpenCommandTests.open_chosenFile_funnelsThroughPresentDocument` (open == browser pick) | T-002 (menu == shortcut); T-003 (open == browser pick) |
 
 ## Notes on technique
 
@@ -187,9 +211,13 @@ exist before the build.
   populated Mac icon slots, and `PointerAffordanceLayer`, and assert Catalyst
   behavior absent before the build — so they fail / are unimplemented until the
   feature lands.
-- **Task IDs deferred.** Per the brief, no DAG task-ID tags are applied here. `/dag`
-  adds the authoritative task → test mapping in the next stage (as it did for
-  feature 13's verify.md).
+- **Task IDs applied.** The Task ID column is now populated by `/dag`: the Catalyst-
+  destination XCUITest harness launch → **T-001**; every Part 1 menu test → **T-002**;
+  the File → Open adapter cases → **T-003**; the F-001 open-while-open ordering cases →
+  **T-004**; every pointer test → **T-005**; every restoration case → **T-006**; the
+  Mac icon-slot cases → **T-007**. This is the authoritative task → test mapping;
+  `dag.md` and `state.md` carry the matching task definitions. Every task has at least
+  one mapped test.
 
 ## Untestable requirements
 
