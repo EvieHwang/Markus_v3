@@ -1,6 +1,6 @@
 # Adversarial Review — Mac Catalyst Shell (mac-catalyst-shell-14)
 
-Reviewing requirements.md (`3de08dd7233fbc476a5df106f5b6e154b58af3ad`) and design.md (`6487dae95b31f152c344680df946ff089973613b`) — fresh review.
+Reviewing requirements.md (`3de08dd7233fbc476a5df106f5b6e154b58af3ad`) and design.md (`4cd07b7c7597d5b141322142ae3b32131e5d6127`) — **verification pass** (targeted at the F-001 fix; requirements.md unchanged, design.md revised since the fresh review at `6487dae95b31f152c344680df946ff089973613b`). Scope limited to verifying F-001's resolution and probing the fix for an adjacent gap; unchanged content (menus, pointer, restoration, icons) was cleared in the fresh review and not re-swept.
 
 Source ground truth read at review time: `Markus_v3/Host/EditorActions.swift`, `Markus_v3/Host/EditorKeyCommandHostingController.swift`, `Markus_v3/Host/BrowserHostController.swift` (`presentDocument(at:)`, `installEditorSession`, `dismissPresentedEditor`, `loadMarkdownDocument`), `Markus_v3/Resume/LaunchResumeBranch.swift`.
 
@@ -9,6 +9,12 @@ This feature adds no new Shape component; it reuses this app's own established s
 ---
 
 ## Open findings
+
+*None. F-001 resolved and verified — see Resolved findings.*
+
+---
+
+## Resolved findings
 
 ### F-001 — Open-while-open ordering (C-2.4 vs. S-4) is self-contradictory and, as written in C-2.4, breaks the inherited DC-10 "failed open never tears down a healthy prior document" guarantee
 
@@ -23,6 +29,7 @@ This feature adds no new Shape component; it reuses this app's own established s
 - **Recommended action (architecture):** Resolve to a single, load-success-gated ordering and make it the one C-2.4 states (not a build-step choice). `loadMarkdownDocument(at:)` is already a pure static function returning `.document`/`.alert` with no state mutation, so the coherent composition is reachable from existing pieces: **(1)** load/validate the chosen URL first; **(2)** on `.alert`, surface `openPathAlert` and leave the current session fully intact (matches DC-10 / the cancel edge case); **(3)** only on `.document` success tear down the prior session and present the new one, sequencing the present *after* the dismiss completes (dismiss-completion handler, or present non-animated after teardown) to avoid the double-present race. Rewrite C-2.4 to state this ordering as the behavioral constraint and delete S-4's "if the design chose to tear it down first" hedge so requirements' inherited DC-10 guarantee holds on the open-while-open path. Note this needs a composed host operation (load → conditional teardown → present); the current `dismissPresentedEditor()` + `presentDocument(at:)` pair cannot be invoked teardown-first without breaking the guarantee.
 - **Status:** addressed
 - **Resolution note:** Resolved in design.md to a single load-success-gated ordering — see the rewritten *Resolved deferred question — AC-3.5* section, **C-2.4**, and **S-4**: load/validate the chosen URL first, leave the current session fully intact (DC-10) on failure, and tear down + present only on load success, via a composed host operation (load → conditional teardown → present); S-4's "if the design chose to tear it down first" hedge is deleted. The two Prescription-feedback items were confirmed to remain behavioral (enablement-via-responder-chain and the present-after-dismiss mechanism are left to the build step).
+- **Verification (design.md `4cd07b7c7597d5b141322142ae3b32131e5d6127`):** Fix verified as holding. (a) The three sections now AGREE — the *Resolved deferred question — AC-3.5* section (steps 1–3), **C-2.4**, and **S-4** all state one coherent ordering: load/validate first via the pure `loadMarkdownDocument`; on `.alert` surface `openPathAlert` and leave the prior session/detector/document fully intact (inherited DC-10); only on `.document` success tear down the prior session and present the new document, with present sequenced *after* the dismissal completes. S-4's "if the design chose to tear it down first" hedge is gone; S-4 no longer contradicts C-2.4. (b) Attacking the fix with the failure-modes/integrity lens surfaced no adjacent gap: the failure branch never tears down (so DC-10 + double-present are avoided by mutually-exclusive branches plus the explicit present-after-dismiss guard — no window leaves both hazards live); the present-after-dismiss guard is stated observably while the mechanism is correctly deferred to the build step; FM-8 still holds (teardown-then-present is sequenced, "no two-documents-live moment", line 110). The one new edge probed — load succeeds but the teardown's synchronous save of the *prior* document fails — is governed by the *existing, unchanged* `dismissPresentedEditor()` save-failure path (`saveSynchronously()` → `onDidFailWrite` → `SaveFailedAlertRouter` / `ActiveAlert.saveFailed`, verified `BrowserHostController.swift:200–211, 194–196`), identical to a plain Close; the fix composes the unchanged atomic teardown and inherits its save/detector guarantees exactly (design lines 134–137; X-3, FM-7). Not a new failure mode introduced by the fix. F-001 stays **addressed**; no new finding filed.
 
 ---
 
@@ -52,7 +59,8 @@ These concern HOW the design realizes a behavior (responder identity, the concre
 
 ## Summary
 
-- Open findings: HIGH 1, MEDIUM 0, LOW 0.
+- **Verification pass (design.md `4cd07b7c7597d5b141322142ae3b32131e5d6127`):** F-001's load-success-gated fix is verified as holding — the AC-3.5 / C-2.4 / S-4 sections now agree, the S-4 hedge is removed, and attacking the fix surfaced no adjacent gap (DC-10, double-present, present-after-dismiss guard, prior-document save-failure, and FM-8 all check out). No new finding filed; F-001 moved to Resolved findings.
+- Open findings: HIGH 0, MEDIUM 0, LOW 0.
 - `## Prescription feedback`: non-empty (2 entries) — responder identity for menu enablement; the concrete present-after-dismiss sequencing mechanism.
-- No scope-drift finding and no declaration-tension finding. The single-window / no-new-surface declaration is honored throughout; the one finding is an internal correctness/integrity defect, not scope drift.
-- Most serious finding: **F-001 (HIGH)** — the open-while-open transition is specified two contradictory ways; the ordering C-2.4 actually prescribes (teardown-then-present, built on the atomic unconditional `dismissPresentedEditor()`) destroys the prior document on a failed new open, violating the DC-10 guarantee requirements explicitly inherit. Resolve to a load-success-gated ordering and remove S-4's hedge.
+- No scope-drift finding and no declaration-tension finding. The single-window / no-new-surface declaration is honored throughout; the one finding (now resolved) was an internal correctness/integrity defect, not scope drift.
+- Resolved finding: **F-001 (was HIGH)** — the open-while-open transition was specified two contradictory ways; the ordering C-2.4 originally prescribed (teardown-then-present, built on the atomic unconditional `dismissPresentedEditor()`) destroyed the prior document on a failed new open, violating the inherited DC-10 guarantee. Resolved in the revised design to a single load-success-gated ordering with S-4's hedge removed; verified holding this pass with no adjacent gap introduced.
