@@ -81,27 +81,63 @@ the session* vs. *dismiss-and-represent*. This design resolves it as a
 without changing requirement text (AC-3.5 already framed it as deferred-to-
 architecture, so the "Requirements stable" marker stands — see bottom).
 
-**Resolution (constraint C-2.4):** Open-while-open is **dismiss-and-represent**
-on the single window. Choosing Open while an editor is presented runs the
-existing teardown (`dismissPresentedEditor()` — synchronous save of the current
-document, detector stop, session teardown) and then presents the newly chosen
-file through the same `presentDocument(at:)` path the browser pick uses. The
-observable result is one window showing one document, the prior document saved
-and its detector stopped, and the new document recorded as the resume target —
-identical to closing then opening, with no second document model, no second
-window, and no two-documents-live moment.
+*Addresses adversarial F-001.*
 
-**Why dismiss-and-represent, not reuse-the-session.** Reusing the session would
+**Resolution (constraint C-2.4):** Open-while-open is single-window
+replace-on-success, and the ordering is **load-success-gated**: the chosen URL
+is loaded and validated *first*, and the prior document is relinquished *only*
+after that load succeeds. Concretely, in observable terms:
+
+1. **Load first.** The chosen URL is run through the existing pure validation
+   (`loadMarkdownDocument(at:)` — scope acquire → size pre-check → coordinated
+   read → strict UTF-8 decode), which returns success-or-alert and mutates no
+   state.
+2. **On failure, leave the current session fully intact.** If the load returns
+   `.alert`, the existing `openPathAlert` ("Couldn't open") surfaces and the
+   currently open document, its detector, and its session are untouched —
+   identical to the canceled-Open edge case and to a failing browser pick. This
+   is the inherited DC-10 guarantee: a failed open never tears down a healthy
+   prior document.
+3. **Only on success, replace.** If the load succeeds, the prior session is then
+   torn down (the existing teardown's synchronous save of the prior document,
+   detector stop, session teardown) and the new document is presented, with the
+   present sequenced *after* the teardown's dismissal has completed (so the new
+   present never races an in-flight dismissal).
+
+The observable result on success is one window showing one document, the prior
+document saved and its detector stopped, and the new document recorded as the
+resume target — identical to closing then opening, with no second document model,
+no second window, and no two-documents-live moment.
+
+**Why this needs a *composed* host operation, not the existing pair invoked
+teardown-first.** The existing `dismissPresentedEditor()` is *atomic and
+unconditional*: it saves, stops the detector, sets `activeDocument = nil`, and
+dismisses, and it takes no success signal. The DC-10 protection
+(`activeDocument` mutated only on load success) lives *inside a single
+`presentDocument(at:)` call* and does not span a preceding
+`dismissPresentedEditor()`. So invoking the pair teardown-first — dismiss, then
+present — would, on a failed new load, leave the user at the browser with a
+"Couldn't open" alert and **no document**, strictly worse than canceling Open
+and a direct DC-10 violation. The behavioral requirement on the build step is
+therefore a *composed* operation — **load → conditional teardown → present** —
+that relinquishes the prior session only after the new load has succeeded. The
+exact sequencing mechanism for present-after-dismiss (a dismiss-completion
+closure, a non-animated present after teardown, or a combined host method) is a
+build choice bounded by the observable guard below; this design fixes the
+*ordering*, not the mechanism.
+
+**Why replace-on-success, not reuse-the-session.** Reusing the session would
 mean swapping a new `MarkdownDocument` + `ChangeDetector` + `SaveBridge` +
 `SaveFailedAlertRouter` into the live editor in place — a per-component
 hot-swap the existing code does not support and which would be a *new* document-
 lifecycle path (FM-1, FM-8). The host already builds an entire editor session
 atomically in `installEditorSession(...)` and already tears one down atomically
-in `dismissPresentedEditor()`; composing those two existing operations
-introduces no new mechanism and inherits their save/detector guarantees exactly.
-This is the single-document behavior the requirement points at ("the existing
-present/dismiss behavior"). See Seam S-4 for the ordering guard (failed new open
-must not have torn down the prior document — DC-10).
+in `dismissPresentedEditor()`; composing those two existing operations behind a
+load-success gate introduces no new read/decode/bookmark mechanism and inherits
+their save/detector guarantees exactly. This is the single-document behavior the
+requirement points at ("the existing present/dismiss behavior"). See Seam S-4
+for the load-success ordering guarantee (a failed new open must never have torn
+down the prior document — DC-10).
 
 ---
 
@@ -183,12 +219,18 @@ Preview are enabled and drive their existing flows (C-1.4). (AC-2.2.)
 not a document is open; opening another file is always valid. Choosing Open while
 a document is open behaves per US-3 and constraint C-2.4. (AC-2.3.)
 
-**C-2.4 — Open-while-open replaces the single current document via existing
-present/dismiss (the resolved AC-3.5 transition).** See *Resolved deferred
-question*. Open-while-open is dismiss-and-represent on the one window: the prior
-session is torn down by the existing teardown (saving synchronously, stopping the
-detector) and the new file is presented through `presentDocument(at:)`. No
-multi-window, tab, or multi-document state is created. (AC-3.5, FM-8.)
+**C-2.4 — Open-while-open replaces the single current document, load-success-
+gated (the resolved AC-3.5 transition).** *Addresses adversarial F-001.* See
+*Resolved deferred question*. Open-while-open is single-window replace-on-success
+with a **load-success-gated ordering**: the chosen URL is loaded and validated
+*first* (the existing pure `loadMarkdownDocument(at:)`); on failure the existing
+`openPathAlert` surfaces and the current session is left fully intact (DC-10, and
+identical to canceled Open); *only* on a successful load is the prior session
+torn down (the existing teardown's synchronous save + detector stop) and the new
+document presented, with the present sequenced after the teardown's dismissal
+completes. The prior document is never relinquished before the new document has
+successfully loaded. No multi-window, tab, or multi-document state is created.
+(AC-3.5, FM-8; DC-10 inherited.)
 
 **C-2.5 — A disabled item's shortcut with no document is a structural no-op.**
 Pressing ⌘S / ⌘W / ⌘P at the browser does nothing: the command is unavailable
@@ -279,17 +321,23 @@ else; success, recording, and failure semantics are entirely the existing
 pipeline's. The picker contributes selection and the type constraint; it
 contributes no decision about how the file is read or recorded. (Protects FM-2.)
 
-**Behavioral seam S-4 — Open-while-open orders teardown-then-present and never
-tears down on a failed open.** When Open is chosen with a document already open
-(C-2.4), the existing session is torn down (synchronous save, detector stop)
-*then* the new file is presented. If the new open fails its pipeline gates, the
-prior document — if the design chose to tear it down first — must not be left
-with the app showing no document erroneously; the inherited DC-10 guarantee is
-that a failed open does not destroy a healthy prior document. The build step must
-preserve this: the prior document is only relinquished once the new document has
-successfully loaded, OR the user has accepted the equivalent of a close. The
-observable contract is "a failed File → Open never leaves the user worse off than
-a canceled one." (Protects DC-10, FM-8.)
+**Behavioral seam S-4 — Open-while-open is load-success-gated: the prior
+document is relinquished only after the new document has successfully loaded.**
+*Addresses adversarial F-001.* When Open is chosen with a document already open
+(C-2.4), the chosen URL is loaded and validated *first*; the prior session is
+torn down (synchronous save, detector stop) and the new file presented *only*
+after that load succeeds. If the new open fails its pipeline gates, the prior
+session is left fully intact and the existing `openPathAlert` surfaces — the
+inherited DC-10 guarantee that a failed open never destroys a healthy prior
+document. This requires a *composed* host operation (load → conditional teardown
+→ present): the existing `dismissPresentedEditor()` is atomic and unconditional
+and cannot be invoked teardown-first without breaking the guarantee, because its
+`activeDocument = nil` does not span into a subsequent failed `presentDocument`.
+The observable contract is "a failed File → Open never leaves the user worse off
+than a canceled one." The concrete mechanism for sequencing the new present after
+the teardown's dismissal completes (dismiss-completion closure, non-animated
+present after teardown, or a combined host method) is left to the build step,
+bounded by this contract. (Protects DC-10, FM-8.)
 
 ---
 
