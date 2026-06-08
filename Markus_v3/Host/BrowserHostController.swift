@@ -40,6 +40,11 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     private var currentPresentedNav: UINavigationController?
     private var edgeSwipeRecognizer: UIScreenEdgePanGestureRecognizer?
 
+    /// mac-catalyst-shell-14 T-003 — strong reference to the currently presented
+    /// open command (Component B). Held only for the panel's lifetime so the
+    /// delegate stays alive; cleared on pick or cancel.
+    private var currentOpenCommand: MacOpenCommand?
+
     /// open-path-hardening-10 — current presented `MarkdownDocument`, if any.
     /// Read-only seam for spec tests asserting DC-10's "prior document
     /// survives a failed second pick." Set on successful open; cleared on
@@ -257,6 +262,41 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     @MainActor
     func flushPendingSaves() {
         currentSaveBridge?.saveSynchronously()
+    }
+
+    /// mac-catalyst-shell-14 T-003 — File → Open / ⌘O entry (design Component B).
+    /// Presents the system open panel constrained to
+    /// `MarkdownDocument.readableContentTypes` and funnels the chosen URL into the
+    /// existing `presentDocument(at:)` path. No second open / decode / read /
+    /// security-scoped-bookmark mechanism is introduced (FM-2, S-3).
+    ///
+    /// Open-while-open behavior (the load-success-gated composed operation,
+    /// design C-2.4 / S-4, addressing adversarial F-001) is delivered by T-004:
+    /// this method routes the chosen URL through whichever open seam is current,
+    /// so the T-004 composition is a single replacement of the funnel call below.
+    @MainActor
+    func presentSystemOpenPanel() {
+        let presenter: UIViewController = presentedViewController ?? self
+        let command = MacOpenCommand(
+            onPicked: { [weak self] url in
+                guard let self else { return }
+                self.currentOpenCommand = nil
+                self.openFileFromMenu(at: url)
+            },
+            onCanceled: { [weak self] in
+                self?.currentOpenCommand = nil
+            }
+        )
+        currentOpenCommand = command
+        command.present(from: presenter)
+    }
+
+    /// Funnel for File → Open / ⌘O. T-003 routes through the existing
+    /// `presentDocument(at:)`; T-004 will replace this with the load-success-gated
+    /// composed operation when a prior document is open.
+    @MainActor
+    func openFileFromMenu(at url: URL) {
+        presentDocument(at: url)
     }
 
     /// open-path-hardening-10 — four-stage gated open pipeline (DC-1, DC-4).
