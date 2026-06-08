@@ -12,4 +12,4 @@ Valid status values: `pending`, `in-progress`, `complete`, `failed`, `deviation`
 | T-004 | Open-while-open composed host operation (Component B, F-001) — load-success-gated load → conditional teardown → present; failed new open leaves the prior document fully intact (DC-10); single window | 3 | pending | |
 | T-005 | Pointer / hover affordance layer (Component C) — hover feedback on the tap-to-edit surface and the eye control; clickable == tappable; click == tap; never the sole affordance; inert with no pointer | 2 | pending | |
 | T-006 | Mac scene-restoration bridge (Component D) — relaunch defers document choice solely to LaunchResumeBranch/LastFileStore; single window; moved/deleted/first-launch fail closed to the browser with no error UI; no new identity store | 2 | pending | |
-| T-007 | Mac app-icon slots (Component E) — populate the 12 empty idiom:mac slots in AppIcon.appiconset additively; iOS/iPad icon unregressed | 2 | pending | |
+| T-007 | Mac app-icon slots (Component E) — populate the 12 empty idiom:mac slots in AppIcon.appiconset additively; iOS/iPad icon unregressed | 2 | in-progress | |
