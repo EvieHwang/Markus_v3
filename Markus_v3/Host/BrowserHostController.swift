@@ -299,6 +299,15 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         presentDocument(at: url)
     }
 
+    /// mac-catalyst-shell-14 T-002 — File → Open / ⌘O menu selector. Receives
+    /// the UICommand from the responder chain (BrowserHostController is always
+    /// in the chain — AC-2.3: Open is always enabled). Defers to
+    /// `presentSystemOpenPanel()` so menu and ⌘-chord converge on one funnel
+    /// (S-2, FM-1).
+    @objc func handleFileOpenMenu(_ sender: Any?) {
+        presentSystemOpenPanel()
+    }
+
     /// open-path-hardening-10 — four-stage gated open pipeline (DC-1, DC-4).
     /// Returns either a `.document(...)` for the caller to present, or an
     /// `.alert(...)` the caller must route to `openPathAlert` and surface
