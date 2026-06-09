@@ -291,12 +291,56 @@ final class BrowserHostController: UIDocumentBrowserViewController {
         command.present(from: presenter)
     }
 
-    /// Funnel for File → Open / ⌘O. T-003 routes through the existing
-    /// `presentDocument(at:)`; T-004 will replace this with the load-success-gated
-    /// composed operation when a prior document is open.
+    /// Funnel for File → Open / ⌘O. With no document open, routes through the
+    /// existing `presentDocument(at:)` (T-003). With a document already open,
+    /// runs the **load-success-gated** composed host operation (T-004, design
+    /// C-2.4 / S-4, addressing adversarial F-001): load → conditional teardown →
+    /// present. The new URL is loaded and validated first; on failure the prior
+    /// session is left fully intact (the inherited DC-10 guarantee); only on a
+    /// successful load is the prior session torn down and the new document
+    /// presented, sequenced after the prior dismissal completes.
     @MainActor
     func openFileFromMenu(at url: URL) {
-        presentDocument(at: url)
+        guard activeDocument != nil else {
+            presentDocument(at: url)
+            return
+        }
+
+        // Step 1 — load/validate FIRST (pure; mutates no session state).
+        let loadResult = Self.loadMarkdownDocument(at: url)
+        switch loadResult {
+        case .alert(let alert):
+            // Step 2 — on failure, leave the prior session fully intact (DC-10).
+            // Surfacing through the existing openPathAlert is identical to a
+            // canceled Open from the user's point of view.
+            openPathAlert = alert
+        case .document(let document):
+            // Step 3 — on success, tear down the prior session and present the
+            // new document with present sequenced AFTER the dismissal completes.
+            replaceActiveDocument(with: document, at: url)
+        }
+    }
+
+    /// Composed prior-teardown + new-present helper for the open-while-open path
+    /// (T-004 / C-2.4 / S-4). The teardown mirrors `dismissPresentedEditor()`'s
+    /// synchronous save + detector stop; the new editor session is installed in
+    /// the dismissal's completion so the present is sequenced after the prior
+    /// dismissal — no double-present race, no two-documents-live moment.
+    @MainActor
+    private func replaceActiveDocument(with document: MarkdownDocument, at url: URL) {
+        currentSaveBridge?.saveSynchronously()
+        currentDetector?.stop()
+        currentDetector = nil
+        currentSaveBridge = nil
+        currentSaveFailedRouter = nil
+        currentPresentedNav = nil
+        edgeSwipeRecognizer = nil
+        activeDocument = nil
+        dismiss(animated: true) { [weak self] in
+            guard let self else { return }
+            self.activeDocument = document
+            self.installEditorSession(for: document, at: url, animated: true)
+        }
     }
 
     /// mac-catalyst-shell-14 T-002 — File → Open / ⌘O menu selector. Receives
