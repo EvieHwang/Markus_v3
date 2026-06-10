@@ -47,7 +47,20 @@ the "12" corrected to "10".
 
 ---
 
-## D-002 — T-002 XCUITest mirror deferred (verified live instead)
+## D-002 — T-002 XCUITest mirror deferred (verified live instead) — **RESOLVED in T-006**
+
+**Resolution:** the `-UITest-SeedFixture` launch-arg handler + fixture-seeding
+path landed alongside T-006's `MacRestorationBridge` (they need the same
+scaffolding — both rely on `LaunchResumeBranch.applyTestOverrides` planting a
+recorded last-opened reference before the resume decision runs). The deferred
+T-002 subset of `MacMenuBarUITests.swift` is now mirrored into
+`Markus_v3UITests/MacCatalystShell14_MacMenuBarUITests.swift` and runs green
+end-to-end on the Mac Catalyst destination (12/12 cases, including the three
+T-006 restoration cases: relaunch-restores, first-launch-on-browser, and
+moved-or-deleted-fails-closed). `LaunchResumeBranch.seedFixtureArg /
+resetResumeStoreArg / resumeFileUnreachableArg` are the three new launch-arg
+handlers; `seedNamedFixtureAndRecord(named:store:)` is the in-app
+fixture-seeding path. See the T-006 commit and state.md.
 
 **Task:** T-002 (Catalyst menu bar — Component A)
 **Affected:** `features/mac-catalyst-shell-14/tests/MacMenuBarUITests.swift`

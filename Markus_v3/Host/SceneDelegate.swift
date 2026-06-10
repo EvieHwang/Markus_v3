@@ -60,7 +60,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // recorded in design.md applies if even this is observed to
         // flash the browser.
         host.initialResumeAction = { host in
+            #if targetEnvironment(macCatalyst)
+            // mac-catalyst-shell-14 T-006 — the Mac scene-restoration entry
+            // routes through MacRestorationBridge, which defers entirely to
+            // LaunchResumeBranch.resume(into:). No new identity store; the
+            // bridge name makes the design Component-D seam explicit (S-6).
+            MacRestorationBridge.restore(into: host)
+            #else
             LaunchResumeBranch.resume(into: host)
+            #endif
         }
 
         // Optional external hook (kept for future T-006 variants); fired
