@@ -104,3 +104,74 @@ restoration tests, which need the same scaffolding); (2) file a separate
 issue against the iOS Simulator host-app launch stack overflow (env, not
 T-002) so the probe suite can run to clean green on the standard simulator
 destination.
+
+---
+
+## D-003 — T-005 XCUITest mirror runs on the existing resume fixture; Catalyst hit-point geometry; pre-existing iOS-only call in ExternalChangeUITests gated
+
+**Task:** T-005 (Pointer / hover affordance layer — Component C)
+**Affected:**
+- `features/mac-catalyst-shell-14/tests/MacPointerUITests.swift` (reference
+  spec — uses `-UITest-SeedFixture mac-fixture.md` and `-UITest-NoPointerDevice`
+  launch args that do not exist in the host today; the deferral context is
+  the same as D-002).
+- `Markus_v3UITests/ExternalChangeUITests.swift` (pre-existing
+  `XCUIDevice.shared.press(.home)` calls that are iOS-only and prevent the
+  UI test target from compiling under the Mac Catalyst destination — distinct
+  from T-005's contract but on the same compile path).
+
+**What changed in the mirror.**
+- **Fixture seeding via the existing resume path.** Like the rest of the
+  feature's deferred fixture work (D-002), T-005's mirror lands in the editor
+  via the existing `-uitest-seed-last-file` flag (LaunchResumeBranch) rather
+  than the spec's not-yet-present `-UITest-SeedFixture mac-fixture.md`
+  handler. The same precedent IpadExpansion13_KeyboardShortcutsUITests uses.
+- **`-UITest-NoPointerDevice` deferred to probe coverage.** The spec's
+  separate no-pointer-device relaunch case asserts "absent a pointer, nothing
+  is hidden/disabled and tap still works." The mirror collapses this into the
+  same session (the targets are visible and a tap on the rendered surface
+  performs the existing transition); the relaunch semantics are pinned at the
+  probe layer by `MacCatalystShell14_NoPointerDeviceTests`.
+- **Coordinate-based clicks and hover on the wide-window Catalyst surface.**
+  On a wide Mac Catalyst window the `RenderedView` ScrollView spans the full
+  width while the actual content column is ~700 pt centered (inherited from
+  ipad-expansion-13's `.contentColumn()`). `XCUIElement.tap()`'s default hit
+  point lands on the padded outer region and XCUITest reports "Unable to find
+  hit point for ScrollView." The mirror taps and hovers via
+  `coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))` so the click
+  is delivered to actual content. This is purely a test-driving primitive —
+  the production contract (`clickable == tappable`, `click == tap`) is
+  unchanged.
+
+**Why the changes are safe.** Each adaptation maps to a build-step primitive
+left as a documented seam in the spec ("the build implementer maps each
+helper to the concrete primitive available on the target Xcode version" —
+verify.md). The observable contract — pointer feedback on both targets, click
+== tap, existing gestures preserved, mode switch reachable without a pointer,
+no-pointer hides/disables nothing, tap still works — is asserted by the
+mirror end-to-end on the Mac Catalyst destination. All six T-005 XCUITest
+cases ran green against the running Catalyst build, and all six
+`PointerAffordanceTests` probes ran green on the iOS-simulator destination,
+covering the seam invariants the XCUITests cannot directly observe (region
+equality, parallel-path absence).
+
+**`XCUIDevice.press(.home)` gating in ExternalChangeUITests.** Two pre-T-005
+backgrounding cases (`testBackgroundingDoesNotAutoResolveSheet`,
+`testBufferPreservedAcrossBackgroundWithPendingSheet`) call
+`XCUIDevice.shared.press(.home)`, which is iOS-only and fails to compile
+under the Catalyst destination's UI test target. Until T-005 nothing
+exercised the Catalyst UI test bundle, so the breakage was latent. To unblock
+the Catalyst XCUITest run, both cases are gated `#if !targetEnvironment(macCatalyst)`,
+matching the existing pattern used on
+`EditorKeyCommandHostingController.keyCommands` (T-002). The tests still
+compile and run on their intended iOS-simulator destination; only the
+Catalyst variant is excluded.
+
+**Adversarial follow-up:** (1) once the `-UITest-SeedFixture mac-fixture.md`
+and `-UITest-NoPointerDevice` handlers land in the host (likely co-introduced
+with T-006's restoration tests), the T-005 mirror should be updated to use
+them so the no-pointer relaunch case is exercised end-to-end rather than
+collapsed; (2) the two backgrounding cases in `ExternalChangeUITests` should
+be replaced with a Catalyst-compatible "background then activate" primitive
+(e.g. `XCUIApplication.deactivate()` or driving the OS via the launch
+arguments path) so the assertions extend to the Mac as well.

@@ -240,6 +240,12 @@ struct DocumentView: View {
                     Image(systemName: "eye")
                 }
                 .accessibilityLabel("Show rendered")
+                .accessibilityIdentifier("ModeSwitchEyeButton")
+                // mac-catalyst-shell-14 T-005 / C-4.2, C-4.3, S-5: pointer/hover
+                // feedback over the existing eye control. The modifier layers
+                // over the existing Button hit region — clickable == tappable,
+                // click == tap — and is inert with no pointer device (C-4.5).
+                .hoverEffect(.automatic)
             }
         }
         // T-008 / NP-8.1, NP-8.7, NPC-11: share button is present only in

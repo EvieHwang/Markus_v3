@@ -398,6 +398,12 @@ final class ExternalChangeUITests: XCTestCase {
 
     // BR-15 — backgrounding while a conflict sheet is up does not auto-resolve it;
     // on return the choice can still be completed.
+    //
+    // mac-catalyst-shell-14 T-005: `XCUIDevice.press(.home)` is iOS-only and
+    // doesn't compile under the Catalyst destination's UI test target. Gating
+    // these two backgrounding cases keeps them running on the iOS sim (their
+    // intended destination) while letting the Catalyst UI test target compile.
+    #if !targetEnvironment(macCatalyst)
     func testBackgroundingDoesNotAutoResolveSheet() {
         let app = openSeededFile(["-uitest-suppress-settle"])
         enterRawEditor(app)
@@ -428,6 +434,7 @@ final class ExternalChangeUITests: XCTestCase {
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 3),
                       "The unsaved buffer must survive the background/return (BR-21.5)")
     }
+    #endif
 
     // BR-21.3 second branch / DC-23 — if, on return, disk now agrees with the buffer,
     // the latched outcome lifts (no stuck sheet) and editing resumes normally.

@@ -64,6 +64,12 @@ struct RenderedView: View {
             let fractional = contentHeight > 0 ? Double(contentY / contentHeight) : 0
             onTap(fractional)
         }
+        // mac-catalyst-shell-14 T-005 / C-4.1, C-4.3, S-5: layer pointer/hover
+        // feedback over the existing tap region. The modifier reports the
+        // existing contentShape as interactive to the pointer system without
+        // adding a hit area or gesture — clickable == tappable, click == tap.
+        // Absent a pointer device the effect is simply never triggered (C-4.5).
+        .hoverEffect(.automatic)
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Edit") { onTap(nil) }
         .accessibilityIdentifier("RenderedView")
