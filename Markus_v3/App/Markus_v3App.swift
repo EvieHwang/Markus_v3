@@ -32,4 +32,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         configuration.delegateClass = SceneDelegate.self
         return configuration
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// mac-catalyst-shell-14 T-002 — Catalyst menu-bar reshape (Component A).
+    /// Defers to `CatalystMenuBuilder` to construct the File / Edit / View
+    /// structure; each Markus item is a UIKeyCommand whose action resolves on
+    /// the responder chain (S-1: enablement is structural).
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        CatalystMenuBuilder.build(with: builder)
+    }
+    #endif
 }

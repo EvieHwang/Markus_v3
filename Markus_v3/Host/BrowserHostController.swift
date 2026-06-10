@@ -40,6 +40,11 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     private var currentPresentedNav: UINavigationController?
     private var edgeSwipeRecognizer: UIScreenEdgePanGestureRecognizer?
 
+    /// mac-catalyst-shell-14 T-003 — strong reference to the currently presented
+    /// open command (Component B). Held only for the panel's lifetime so the
+    /// delegate stays alive; cleared on pick or cancel.
+    private var currentOpenCommand: MacOpenCommand?
+
     /// open-path-hardening-10 — current presented `MarkdownDocument`, if any.
     /// Read-only seam for spec tests asserting DC-10's "prior document
     /// survives a failed second pick." Set on successful open; cleared on
@@ -257,6 +262,94 @@ final class BrowserHostController: UIDocumentBrowserViewController {
     @MainActor
     func flushPendingSaves() {
         currentSaveBridge?.saveSynchronously()
+    }
+
+    /// mac-catalyst-shell-14 T-003 — File → Open / ⌘O entry (design Component B).
+    /// Presents the system open panel constrained to
+    /// `MarkdownDocument.readableContentTypes` and funnels the chosen URL into the
+    /// existing `presentDocument(at:)` path. No second open / decode / read /
+    /// security-scoped-bookmark mechanism is introduced (FM-2, S-3).
+    ///
+    /// Open-while-open behavior (the load-success-gated composed operation,
+    /// design C-2.4 / S-4, addressing adversarial F-001) is delivered by T-004:
+    /// this method routes the chosen URL through whichever open seam is current,
+    /// so the T-004 composition is a single replacement of the funnel call below.
+    @MainActor
+    func presentSystemOpenPanel() {
+        let presenter: UIViewController = presentedViewController ?? self
+        let command = MacOpenCommand(
+            onPicked: { [weak self] url in
+                guard let self else { return }
+                self.currentOpenCommand = nil
+                self.openFileFromMenu(at: url)
+            },
+            onCanceled: { [weak self] in
+                self?.currentOpenCommand = nil
+            }
+        )
+        currentOpenCommand = command
+        command.present(from: presenter)
+    }
+
+    /// Funnel for File → Open / ⌘O. With no document open, routes through the
+    /// existing `presentDocument(at:)` (T-003). With a document already open,
+    /// runs the **load-success-gated** composed host operation (T-004, design
+    /// C-2.4 / S-4, addressing adversarial F-001): load → conditional teardown →
+    /// present. The new URL is loaded and validated first; on failure the prior
+    /// session is left fully intact (the inherited DC-10 guarantee); only on a
+    /// successful load is the prior session torn down and the new document
+    /// presented, sequenced after the prior dismissal completes.
+    @MainActor
+    func openFileFromMenu(at url: URL) {
+        guard activeDocument != nil else {
+            presentDocument(at: url)
+            return
+        }
+
+        // Step 1 — load/validate FIRST (pure; mutates no session state).
+        let loadResult = Self.loadMarkdownDocument(at: url)
+        switch loadResult {
+        case .alert(let alert):
+            // Step 2 — on failure, leave the prior session fully intact (DC-10).
+            // Surfacing through the existing openPathAlert is identical to a
+            // canceled Open from the user's point of view.
+            openPathAlert = alert
+        case .document(let document):
+            // Step 3 — on success, tear down the prior session and present the
+            // new document with present sequenced AFTER the dismissal completes.
+            replaceActiveDocument(with: document, at: url)
+        }
+    }
+
+    /// Composed prior-teardown + new-present helper for the open-while-open path
+    /// (T-004 / C-2.4 / S-4). The teardown mirrors `dismissPresentedEditor()`'s
+    /// synchronous save + detector stop; the new editor session is installed in
+    /// the dismissal's completion so the present is sequenced after the prior
+    /// dismissal — no double-present race, no two-documents-live moment.
+    @MainActor
+    private func replaceActiveDocument(with document: MarkdownDocument, at url: URL) {
+        currentSaveBridge?.saveSynchronously()
+        currentDetector?.stop()
+        currentDetector = nil
+        currentSaveBridge = nil
+        currentSaveFailedRouter = nil
+        currentPresentedNav = nil
+        edgeSwipeRecognizer = nil
+        activeDocument = nil
+        dismiss(animated: true) { [weak self] in
+            guard let self else { return }
+            self.activeDocument = document
+            self.installEditorSession(for: document, at: url, animated: true)
+        }
+    }
+
+    /// mac-catalyst-shell-14 T-002 — File → Open / ⌘O menu selector. Receives
+    /// the UICommand from the responder chain (BrowserHostController is always
+    /// in the chain — AC-2.3: Open is always enabled). Defers to
+    /// `presentSystemOpenPanel()` so menu and ⌘-chord converge on one funnel
+    /// (S-2, FM-1).
+    @objc func handleFileOpenMenu(_ sender: Any?) {
+        presentSystemOpenPanel()
     }
 
     /// open-path-hardening-10 — four-stage gated open pipeline (DC-1, DC-4).
