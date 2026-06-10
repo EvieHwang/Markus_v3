@@ -55,6 +55,12 @@ final class EditorKeyCommandHostingController<Content: View>: UIHostingControlle
     /// The three commands the editor session vends (C-A.6 / AC-5.1).
     /// Returned as a freshly-built array each access so the system observes
     /// stable identities per `UIKeyCommand`.
+    ///
+    /// On Mac Catalyst the menu bar's `UIKeyCommand`s (mac-catalyst-shell-14,
+    /// Component A) own these chords exclusively, so this responder-chain
+    /// vendor is compiled out — preventing duplicate registrations from
+    /// surfacing in the system's keyboard-shortcuts panel (HIG).
+    #if !targetEnvironment(macCatalyst)
     override var keyCommands: [UIKeyCommand]? {
         [
             UIKeyCommand(title: "Toggle Preview",
@@ -71,6 +77,7 @@ final class EditorKeyCommandHostingController<Content: View>: UIHostingControlle
                          modifierFlags: .command),
         ]
     }
+    #endif
 
     @objc func handleTogglePreview() { actions.toggleMode?() }
     @objc func handleClose() { actions.closeEditor?() }
