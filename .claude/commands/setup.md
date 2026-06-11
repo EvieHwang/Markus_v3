@@ -97,4 +97,4 @@ What / Why / For whom / Out of scope / Shape / Roadmap
 - `CLAUDE.md` has the project name, one-liner, an uncommented run/test/deps block, and an uncommented deployment-target block. `## User globals` is preserved untouched.
 - `declaration.md` is populated with all six sections, confirmed by the user.
 - Both commits are on the current branch; nothing has been pushed.
-- Tell the user: "Setup complete. Next step is `/t3-feature-declaration` when you're ready to define the first feature. You can also refine `constitution.md`'s app-specific sections (architectural principles, patterns, quality gates, out-of-scope) before starting feature work."
+- Tell the user: "Setup complete. Next step is `/feature` when you're ready to define the first feature. You can also refine `constitution.md`'s app-specific sections (architectural principles, patterns, quality gates, out-of-scope) before starting feature work."

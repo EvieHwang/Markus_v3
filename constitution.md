@@ -57,7 +57,7 @@ Test files live next to the implementation in `Markus_v3Tests/` (unit) and `Mark
 [populated as significant decisions are made]
 
 ## Acknowledged risks
-*Cross-feature accumulation surface. Each adversarial finding marked `acknowledged` gets one row here so the project never silently forgets that it knowingly took on risk. Severity is the unmitigated severity — an acknowledged HIGH stays HIGH. Populated by `/t3-adversarial` when a finding moves to `acknowledged`.*
+*Cross-feature accumulation surface. Each adversarial finding marked `acknowledged` gets one row here so the project never silently forgets that it knowingly took on risk. Severity is the unmitigated severity — an acknowledged HIGH stays HIGH. Populated by `/adversarial` when a finding moves to `acknowledged`.*
 
 | Feature | Finding | Severity | Risk | Rationale | Mitigation |
 |---------|---------|----------|------|-----------|------------|
