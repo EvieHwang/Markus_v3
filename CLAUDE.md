@@ -26,7 +26,7 @@ Development runs in Claude Code cloud sandboxes attached to this GitHub repo.
 - The container is ephemeral and re-cloned each session. Anything not committed and pushed is lost.
 - No `~/.claude/CLAUDE.md` exists in the sandbox — user-global preferences are carried at the bottom of this file.
 - GitHub access is via the GitHub MCP server (tools prefixed `mcp__github__`). The `gh` CLI is not available.
-- **Cloud vs. local for deployment debugging.** The cloud session is the right environment for code-level work — it has full repo access and can reason about logic. For runtime issues on Eviebot (service not starting, launchd state, live logs, injected environment variables), a local Claude Code session can observe the actual running environment directly. You do not need to end a session to switch: if you move to a local terminal, tell Claude what you're seeing and it continues with full code context. Switch signal: two code-level fixes that should have changed the symptom but didn't typically indicates an environmental issue rather than a code issue.
+- **Cloud vs. local for build debugging.** The cloud session is the right environment for code-level work — it has full repo access and can reason about logic. For Xcode build/signing/simulator issues that only reproduce on a real machine, a local Claude Code session can observe the actual environment directly. You do not need to end a session to switch: if you move to a local terminal, tell Claude what you're seeing and it continues with full code context. Switch signal: two code-level fixes that should have changed the symptom but didn't typically indicates an environmental issue rather than a code issue.
 - Development branch pattern: `claude/<short-task-name>-<suffix>`. Open a PR to `main` when work is complete. Always assign the PR to the repo owner. 
 
 ## Run, test, deps
@@ -48,33 +48,6 @@ Development runs in Claude Code cloud sandboxes attached to this GitHub repo.
 - "Deploy success" for an Apple build means the archive builds, signs, and uploads cleanly. There is no live-service health check; treat App Store / TestFlight acceptance as the equivalent gate.
 
 ## Secrets
-- Canonical source: **GitHub Actions Secrets at the Eve-Hwang org level.**
-- Commit a `.env.example` listing every required key with no values.
-- Never commit `.env` or any file containing secret values.
-- On deploy, the workflow injects secrets into the chosen target (writes `.env` on Eviebot, sets env vars on AWS, configures the Xcode build). Anything on the target is an artifact of deployment, not a source of truth — if the target is rebuilt, the next deploy recreates it.
-- Adding a new secret: add to Eve-Hwang org secrets → add the key to `.env.example` → add the inject step to the deploy workflow.
-
----
-
-## User globals — Evie Hwang
-*Carried in this file because Claude Code cloud sandboxes have no `~/.claude/CLAUDE.md`. These coordinates apply to every project, not just this one.*
-
-### GitHub
-- `EvieHwang` (personal) — used for public AWS-hosted apps
-- `Eve-Hwang` (organization) — used for private Eviebot-hosted apps
-- Self-hosted runner: **Eviebot** (org-level, Default runner group)
-
-### AWS
-- Account: `070840362692` (user: `eve-hwang`)
-- Default region: `us-east-1`
-
-### Eviebot — runtime server
-- Mac mini, headless, always-on. macOS — use `launchd`, not systemd.
-- Runner user: `eviebot`. All paths under `/Users/eviebot/`.
-- Services live at `/Users/eviebot/services/<repo-name>/` with a venv at `.venv/`.
-- Use `python3.11` (Homebrew) when 3.10+ is needed; otherwise confirm `python3 --version` before assuming.
-
-### Gateway integration
-- Gateway repo: `eviebot-mcp-gateway`, running on port 8080.
-- To add a new MCP backend, follow the gateway repo's `CLAUDE.md` exactly. Port allocation, auth patterns (A/B), and the `gateway.py` block are defined there — read it first.
-- Check existing service labels with `launchctl list | grep eviebot` before choosing a new one.
+- Markus has no runtime secrets and no CI deploy path. It is an iOS app built and signed locally in Xcode.
+- Code signing is handled by Xcode (Apple Developer team configured in the project). There is no `.env` to commit or inject.
+- If a future feature ever needs a secret, do not commit it: add a `.env.example` listing the key with no value, and source the real value from a secrets manager at build time.
