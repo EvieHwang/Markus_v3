@@ -48,6 +48,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
         window.makeKeyAndVisible()
 
+        // OS-initiated file open (Finder double-click, "Open With → Markus",
+        // drag-onto-app, `open -a Markus file.md`) arrives as URL contexts on
+        // `connectionOptions`. When present, an explicit file request
+        // preempts the resume flow — resume remains the fallback when the OS
+        // hasn't asked for anything specific.
+        let requestedURL = Self.firstFileURL(in: connectionOptions.urlContexts)
+
         // T-006 resume decision: defer to the host's first
         // `viewDidAppear` so the present has a fully-on-screen presenter.
         // For zero-flash semantics (DC-3) we want this to happen at the
@@ -60,6 +67,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // recorded in design.md applies if even this is observed to
         // flash the browser.
         host.initialResumeAction = { host in
+            if let requestedURL {
+                // Reuse the existing present funnel; zero-flash matches the
+                // resume path so an OS-opened file lands the same way.
+                host.presentDocument(at: requestedURL, animated: false)
+                return
+            }
             #if targetEnvironment(macCatalyst)
             // mac-catalyst-shell-14 T-006 — the Mac scene-restoration entry
             // routes through MacRestorationBridge, which defers entirely to
@@ -83,5 +96,19 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneWillResignActive(_ scene: UIScene) {
         Self.activeHost?.flushPendingSaves()
+    }
+
+    /// OS-initiated file open while the app is already running ("Open With",
+    /// drag onto the running app, `open -a Markus file.md` when running).
+    /// Routes the URL through the host's existing open funnel so the open-
+    /// while-open path is handled identically to File → Open / ⌘O.
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        guard let url = Self.firstFileURL(in: URLContexts),
+              let host = Self.activeHost else { return }
+        host.openFileFromMenu(at: url)
+    }
+
+    private static func firstFileURL(in contexts: Set<UIOpenURLContext>) -> URL? {
+        contexts.lazy.map(\.url).first(where: { $0.isFileURL })
     }
 }
