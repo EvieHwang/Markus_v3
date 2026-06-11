@@ -1,6 +1,14 @@
 # Markus
 
-A markdown editor for iOS that opens `.md` and `.markdown` files from anywhere in the iOS file system — iCloud Drive, Obsidian, or any other Files-accessible location — and saves changes back to the original file. No vault, no accounts, no onboarding.
+A markdown editor for iPhone — and now iPad and Mac — that opens `.md` and `.markdown` files from anywhere in the file system — iCloud Drive, Obsidian, or any other Files-accessible location — and saves changes back to the original file. No vault, no accounts, no onboarding.
+
+Designed for iPhone first, Markus runs as a universal app across iPhone and iPad, and on Mac via Mac Catalyst.
+
+## Screenshots
+
+| Rendered view | Raw editor | Document browser |
+| :---: | :---: | :---: |
+| ![Rendered Markdown view showing formatted headings and lists](docs/screenshots/rendered-view.png) | ![Raw editor showing plain-text Markdown source](docs/screenshots/raw-editor.png) | ![System document browser used to open files](docs/screenshots/document-browser.png) |
 
 ## What it does
 
@@ -15,16 +23,22 @@ A markdown editor for iOS that opens `.md` and `.markdown` files from anywhere i
 
 No library or vault — your folder structure is the library. No accounts or sync — that's iCloud's job. No settings screen. No onboarding. No proprietary format. Files on disk are always plain `.md` / `.markdown`.
 
+## Platforms
+
+- **iPhone** — iOS 18+ (the primary, originally-designed experience)
+- **iPad** — iPadOS 18+ (universal app; responsive layout with a readable max content width)
+- **Mac** — via Mac Catalyst
+
 ## Requirements
 
-- iOS 16+
+- iOS / iPadOS 18+, or a Mac that runs the Catalyst build
 - Xcode 15+
 - An Apple Developer account (free tier is sufficient for local runs on a simulator)
 
 ## Building and running
 
 1. Open `Markus_v3.xcodeproj` in Xcode. Swift Package Manager resolves dependencies automatically.
-2. Select a simulator or connected device, then press **Run** (⌘R).
+2. Pick a destination — an iPhone or iPad simulator/device, or **My Mac (Mac Catalyst)** — then press **Run** (⌘R).
 
 To run tests:
 
