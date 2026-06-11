@@ -23,7 +23,7 @@ a decision, not made silently.
 - Feature files are the spec. They are never modified during implementation; if they are wrong, fix the document and restart the affected step.
 - No Docker for local development unless the project has multi-service dependencies that genuinely require it.
 - All deployments run through GitHub Actions, triggered by push to `main`.
-- Prefer self-hosted runners (Eviebot) over SSH-based deploy steps.
+- Prefer self-hosted runners over SSH-based deploy steps.
 
 [Add app-specific principles below as they are decided.]
 

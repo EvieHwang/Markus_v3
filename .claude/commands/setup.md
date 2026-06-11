@@ -17,7 +17,7 @@ Ask in this order; one topic per turn, do not batch:
 1. **Project name** — short, human-readable. Used to replace `# [Project Name]` in CLAUDE.md and as the `#` heading in the new README.
 2. **One-line description** — what the app is, in a sentence. Becomes the README subtitle and a comment line in CLAUDE.md.
 3. **Stack / runtime** — pick the run/test/deps block. Offer the common shapes (Node + pnpm/npm, Python + pyproject, Swift/Xcode, static site, "skip — fill later"). If the user names a stack not on the list, accept it and synthesize a reasonable block.
-4. **Deployment target** — Eviebot (self-hosted Mac mini, launchd), AWS (us-east-1, account 070840362692), Apple/Xcode (App Store / TestFlight), or "none yet". Pull the canonical coordinates from CLAUDE.md's `## User globals` block when writing Eviebot/AWS targets.
+4. **Deployment target** — Eviebot (self-hosted Mac mini, launchd), AWS (us-east-1), Apple/Xcode (App Store / TestFlight), or "none yet". Pull the canonical coordinates (account IDs, server paths) from your own private/global notes when writing Eviebot/AWS targets — do not hard-code account numbers into a committed file.
 
 Hold answers at the level the template expects — names and commands, not architecture. If the user starts describing features or behavior, note it and redirect: that will come out in the declaration conversation that follows.
 
@@ -33,11 +33,11 @@ Confirm the four answers back to the user before writing anything.
 <One-line description>
 ```
 
-`CLAUDE.md` — make these edits, preserving the rest of the file verbatim (especially the `## User globals — Evie Hwang` section at the bottom):
+`CLAUDE.md` — make these edits, preserving the rest of the file verbatim:
 - Replace `# [Project Name]` with `# <Project name>`.
 - Replace the bracketed one-line-description placeholder with the user's one-liner.
 - Under `## Run, test, deps`: replace the instruction text with a single uncommented block for the chosen stack (install, run/dev, test commands). If the user picked "skip", leave a single-line TODO comment.
-- Under `## Deployment target`: replace the instruction text with a single uncommented block for the chosen target. For Eviebot: reference `/Users/eviebot/services/<repo-name>/` and `launchd`. For AWS: reference account `070840362692`, region `us-east-1`, secrets from Eve-Hwang org Actions secrets. For Apple/Xcode: reference Xcode build + signing. For "none yet": leave a single-line TODO.
+- Under `## Deployment target`: replace the instruction text with a single uncommented block for the chosen target. For Eviebot: reference the service path under the runner home and `launchd`. For AWS: reference region `us-east-1` and secrets from org Actions secrets (pull the account ID from your private notes, do not commit it). For Apple/Xcode: reference Xcode build + signing. For "none yet": leave a single-line TODO.
 
 Do not modify `declaration.md`, `constitution.md`, or anything under `features/`.
 
